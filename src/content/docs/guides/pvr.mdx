@@ -1,11 +1,328 @@
 ---
-title: PVR
-description: Texture Format
+title: PVR Texture Format
+description: Technical documentation of the PowerVR texture format used in Dreamcast games
 ---
 
-Guides lead a user through a specific task they want to accomplish, often with a sequence of steps.
-Writing a good guide requires thinking about what your users are trying to do.
+import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-## Further reading
+The PVR (PowerVR) texture format is the native texture format used by the Sega Dreamcast's PowerVR2 (CLX2) graphics hardware. This format was optimized for the specific architecture of the PowerVR GPU, providing efficient texture data storage and fast rendering performance.
 
-- Read [about how-to guides](https://diataxis.fr/how-to-guides/) in the Diátaxis framework
+## File Structure
+
+A PVR file consists of a header followed by texture data:
+
+<Tabs>
+  <TabItem label="Basic Structure">
+  ```
+  +-----------------+
+  | Magic "PVRT"    | 4 bytes
+  +-----------------+
+  | Data Size       | 4 bytes
+  +-----------------+
+  | Texture Header  | 8 bytes
+  +-----------------+
+  | [Palette Data]  | Optional
+  +-----------------+
+  | [VQ Codebook]   | Optional
+  +-----------------+
+  | Texture Data    | Variable size
+  +-----------------+
+  ```
+  </TabItem>
+
+  <TabItem label="Texture Header">
+  ```c
+  typedef struct {
+      uint8_t  pixel_format;  // Color format (RGB565, ARGB1555, etc.)
+      uint8_t  data_format;   // Data format (TWIDDLED, VQ, etc.)
+      uint8_t  padding[2];    // Unused padding bytes
+      uint16_t width;         // Texture width (pixels)
+      uint16_t height;        // Texture height (pixels)
+  } PVRTextureHeader;
+  ```
+  </TabItem>
+</Tabs>
+
+## Color Formats
+
+PVR textures support several pixel formats, each offering different color depths and alpha channel options:
+
+| Value | Format     | Description                                | BPP |
+|-------|------------|--------------------------------------------|-----|
+| 0x00  | ARGB1555   | 1-bit alpha, 5-bit RGB                     | 16  |
+| 0x01  | RGB565     | No alpha, 5-bit R/B, 6-bit G               | 16  |
+| 0x02  | ARGB4444   | 4-bit alpha, 4-bit RGB                     | 16  |
+| 0x03  | YUV422     | YUV format for video textures              | 16  |
+| 0x04  | BUMP       | Bump mapping format                        | 16  |
+| 0x05  | RGB555     | No alpha, 5-bit RGB (1 bit unused)         | 16  |
+| 0x06  | ARGB8888   | 8-bit alpha, 8-bit RGB                     | 32  |
+| 0x06  | YUV420     | Alternate YUV format (same value as ARGB8888) | 16 |
+
+## Data Formats
+
+The data format determines how the texture is stored and accessed:
+
+| Value | Format                | Description                                      |
+|-------|----------------------|--------------------------------------------------|
+| 0x01  | TWIDDLED             | Morton order layout for optimal cache usage      |
+| 0x02  | TWIDDLED_MM          | Twiddled with mipmaps                            |
+| 0x03  | VQ                   | Vector Quantized compression                     |
+| 0x04  | VQ_MM                | Vector Quantized with mipmaps                    |
+| 0x05  | PALETTIZE4           | 4-bit indexed with palette                       |
+| 0x06  | PALETTIZE4_MM        | 4-bit indexed with palette and mipmaps           |
+| 0x07  | PALETTIZE8           | 8-bit indexed with palette                       |
+| 0x08  | PALETTIZE8_MM        | 8-bit indexed with palette and mipmaps           |
+| 0x09  | RECTANGLE            | Non-square, non-twiddled                         |
+| 0x0B  | STRIDE               | Rectangular with stride                          |
+| 0x0D  | TWIDDLED_RECTANGLE   | Rectangular texture stored as twiddled squares   |
+| 0x0E  | ABGR                 | Direct ABGR format                               |
+| 0x0F  | ABGR_MM              | Direct ABGR with mipmaps                         |
+| 0x10  | SMALLVQ              | Small codebook VQ compressed                     |
+| 0x11  | SMALLVQ_MM           | Small codebook VQ with mipmaps                   |
+| 0x12  | TWIDDLED_MM_ALIAS    | Alternative twiddled mipmap format               |
+
+## Morton Order ("Twiddled") Format
+
+"Twiddled" textures are stored in Morton order (Z-order curve), which interleaves the bits of the X and Y coordinates. This layout optimizes texture access patterns for the PowerVR's tile-based rendering architecture.
+
+```
+// Function to convert from linear to Morton order
+uint32_t toMorton(uint16_t x, uint16_t y) {
+    uint32_t morton = 0;
+    for (int i = 0; i < 16; i++) {
+        morton |= ((x & (1 << i)) << i) | ((y & (1 << i)) << (i + 1));
+    }
+    return morton;
+}
+```
+
+<div className="flex justify-center my-8">
+    <img src="/diagrams/morton-order.svg" alt="Morton Order Diagram" width="400" />
+</div>
+
+## Vector Quantization (VQ)
+
+VQ compression is a block-based compression technique used in PVR textures. It works by:
+
+1. Dividing the texture into 2×2 pixel blocks (16 bytes each in ARGB8888)
+2. Creating a codebook of common/representative blocks
+3. Storing an index into this codebook for each 2×2 block in the texture
+
+This can achieve compression ratios of 8:1 or better while maintaining reasonable visual quality.
+
+<Tabs>
+  <TabItem label="VQ Structure">
+  ```
+  +------------------------+
+  | Codebook Size (256)    | Implicit - not stored in file
+  +------------------------+
+  | Codebook (256 entries) | Each entry is a 2×2 pixel block
+  +------------------------+
+  | Indices                | One byte per 2×2 block in texture
+  +------------------------+
+  ```
+  </TabItem>
+
+  <TabItem label="VQ Block Layout">
+  ```
+  +-----+-----+
+  | 0,0 | 1,0 |  In a 2×2 block, pixels are stored in this order
+  +-----+-----+
+  | 0,1 | 1,1 |
+  +-----+-----+
+  ```
+  </TabItem>
+</Tabs>
+
+## Mipmapping
+
+PVR textures with mipmaps include multiple versions of the texture at different resolutions. Each mipmap level is half the width and height of the previous level, down to 1×1 pixel.
+
+Mipmapped formats include:
+- TWIDDLED_MM
+- VQ_MM
+- PALETTIZE4_MM
+- PALETTIZE8_MM
+- ABGR_MM
+- SMALLVQ_MM
+- TWIDDLED_MM_ALIAS
+
+## Palettized Formats
+
+Palettized textures store a color palette (lookup table) followed by indices into that palette for each pixel:
+
+<Tabs>
+  <TabItem label="4-bit Palette">
+  ```
+  +------------------------+
+  | 16-entry Palette       | 16 colors in the specified pixel format
+  +------------------------+
+  | 4-bit Indices          | One nibble per pixel (packed 2 per byte)
+  +------------------------+
+  ```
+  </TabItem>
+
+  <TabItem label="8-bit Palette">
+  ```
+  +------------------------+
+  | 256-entry Palette      | 256 colors in the specified pixel format
+  +------------------------+
+  | 8-bit Indices          | One byte per pixel
+  +------------------------+
+  ```
+  </TabItem>
+</Tabs>
+
+## Code Examples
+
+### 1. Reading a PVR Header
+
+```c
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+typedef struct {
+    uint8_t  pixel_format;
+    uint8_t  data_format;
+    uint8_t  padding[2];
+    uint16_t width;
+    uint16_t height;
+} PVRTextureHeader;
+
+void read_pvr_header(const char* filename) {
+    FILE* file = fopen(filename, "rb");
+    if (!file) {
+        printf("Failed to open file\n");
+        return;
+    }
+
+    // Check for PVRT magic
+    char magic[4];
+    fread(magic, 1, 4, file);
+    if (memcmp(magic, "PVRT", 4) != 0) {
+        printf("Not a valid PVR file\n");
+        fclose(file);
+        return;
+    }
+
+    // Skip data size
+    fseek(file, 4, SEEK_CUR);
+
+    // Read texture header
+    PVRTextureHeader header;
+    fread(&header, sizeof(header), 1, file);
+
+    printf("PVR Texture Info:\n");
+    printf("  Dimensions: %d×%d\n", header.width, header.height);
+    printf("  Pixel Format: 0x%02X\n", header.pixel_format);
+    printf("  Data Format: 0x%02X\n", header.data_format);
+
+    fclose(file);
+}
+```
+
+### 2. Converting Between Color Formats
+
+```c
+// Convert ARGB1555 to RGBA8888
+void argb1555_to_rgba8888(uint16_t input, uint8_t* output) {
+    uint8_t a = (input & 0x8000) ? 0xFF : 0x00;
+    uint8_t r = ((input >> 10) & 0x1F) << 3;
+    uint8_t g = ((input >> 5) & 0x1F) << 3;
+    uint8_t b = (input & 0x1F) << 3;
+
+    // Fill in the low bits (copy from high bits)
+    r |= r >> 5;
+    g |= g >> 5;
+    b |= b >> 5;
+
+    output[0] = r;
+    output[1] = g;
+    output[2] = b;
+    output[3] = a;
+}
+
+// Convert RGB565 to RGBA8888
+void rgb565_to_rgba8888(uint16_t input, uint8_t* output) {
+    uint8_t r = ((input >> 11) & 0x1F) << 3;
+    uint8_t g = ((input >> 5) & 0x3F) << 2;
+    uint8_t b = (input & 0x1F) << 3;
+
+    // Fill in the low bits (copy from high bits)
+    r |= r >> 5;
+    g |= g >> 6;
+    b |= b >> 5;
+
+    output[0] = r;
+    output[1] = g;
+    output[2] = b;
+    output[3] = 0xFF;  // No alpha in RGB565
+}
+
+// Convert ARGB4444 to RGBA8888
+void argb4444_to_rgba8888(uint16_t input, uint8_t* output) {
+    uint8_t a = ((input >> 12) & 0xF) << 4;
+    uint8_t r = ((input >> 8) & 0xF) << 4;
+    uint8_t g = ((input >> 4) & 0xF) << 4;
+    uint8_t b = (input & 0xF) << 4;
+
+    // Fill in the low bits (copy from high bits)
+    a |= a >> 4;
+    r |= r >> 4;
+    g |= g >> 4;
+    b |= b >> 4;
+
+    output[0] = r;
+    output[1] = g;
+    output[2] = b;
+    output[3] = a;
+}
+```
+
+### 3. Untwiddle Function
+
+```c
+// Convert twiddled coordinates to linear
+uint32_t untwiddle(uint16_t x, uint16_t y) {
+    uint32_t morton = 0;
+
+    for (int i = 0; i < 16; i++) {
+        morton |= ((x & (1 << i)) << i) | ((y & (1 << i)) << (i + 1));
+    }
+
+    return morton;
+}
+
+// Decode a twiddled texture (simple example)
+void decode_twiddled_texture(const uint16_t* src, uint32_t* dst, int width, int height) {
+    for (int y = 0; y < height; y++) {
+        for (int x = 0; x < width; x++) {
+            int morton_idx = untwiddle(x, y);
+
+            // Check bounds and untwiddle
+            if (morton_idx < width * height) {
+                uint16_t color = src[morton_idx];
+
+                // Convert to RGBA8888 (example using ARGB1555)
+                uint8_t rgba[4];
+                argb1555_to_rgba8888(color, rgba);
+
+                // Write to destination (assuming RGBA8888 output)
+                dst[y * width + x] = (rgba[3] << 24) | (rgba[0] << 16) | (rgba[1] << 8) | rgba[2];
+            }
+        }
+    }
+}
+```
+
+## Special Cases and Limitations
+
+- **Power-of-Two**: Most PVR formats require power-of-two texture dimensions
+- **Square Textures**: Some formats (particularly twiddled) work best with square textures
+- **Mipmapping**: Not all hardware can filter mipmaps correctly
+- **Small VQ**: The SMALLVQ variant uses smaller codebooks for small textures:
+  - 16×16 or smaller: 16 codebook entries
+  - 32×32: 32 codebook entries
+  - 64×64: 128 codebook entries
+  - Larger: 256 codebook entries
