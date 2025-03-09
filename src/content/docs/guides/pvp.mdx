@@ -1,0 +1,109 @@
+---
+title: PVP Texture Palette
+description: Documentation for Sega Dreamcast PVP texture palette format
+---
+
+The `.pvp` (Power VR Palette) file format is a specialized texture palette format used primarily with the Sega Dreamcast's PowerVR graphics hardware. These files store color palettes for indexed-color PVR textures, allowing developers to efficiently use memory by separating color data from texture data.
+
+## Technical Specifications
+
+### File Structure
+
+A standard `.pvp` file contains the following elements:
+
+1. **Header Section**
+   - **Magic Identifier**: "PVPL" (4 bytes) - Identifies the file as a PowerVR Palette
+   - **Data Size**: 4-byte integer specifying the size of palette data that follows
+   - **Format**: 1-byte value indicating the color format of the palette entries
+   - **Entry Count**: 2-byte value indicating the number of colors in the palette (typically 16 or 256)
+   - **Padding**: Optional padding bytes for alignment
+
+2. **Palette Data**
+   - Series of color entries in the specified format
+   - Each entry is typically 2 bytes (16-bit) or 4 bytes (32-bit) depending on the format
+
+### Color Formats
+
+PVP files support the same color formats as PVR textures:
+
+| Format ID | Name | Description |
+|-----------|------|-------------|
+| 0x00 | ARGB1555 | 1-bit alpha, 5-bit RGB (16-bit total) |
+| 0x01 | RGB565 | No alpha, 5-bit R, 6-bit G, 5-bit B (16-bit total) |
+| 0x02 | ARGB4444 | 4-bit alpha, 4-bit RGB (16-bit total) |
+| 0x05 | RGB555 | No alpha, 5-bit RGB (16-bit total) |
+| 0x06 | ARGB8888 | 8-bit alpha, 8-bit RGB (32-bit total) |
+
+## Usage
+
+### Development Context
+
+`.pvp` files are typically used alongside palettized PVR textures (those with formats PALETTIZE4 or PALETTIZE8). This separation allows:
+
+1. **Memory Efficiency**: Multiple textures can share the same palette
+2. **Color Swapping**: Changing the palette allows for quick texture variations without duplicating texture data
+3. **Optimization**: The Dreamcast's PowerVR hardware has dedicated palette memory for efficient rendering
+
+### Loading Process
+
+When working with palettized textures:
+
+1. Load the `.pvp` file into palette memory
+2. Load the associated palettized `.pvr` texture
+3. The rendering hardware/API combines the texture indices with the palette colors during rendering
+
+### Creating PVP Files
+
+Typically, `.pvp` files were created using:
+
+- Official Sega Dreamcast SDK tools
+- Tools like PVRTool
+- Custom exporters for modeling software
+
+## Implementation Example
+
+```c
+typedef struct {
+    char        magic[4];       // "PVPL"
+    uint32_t    data_size;      // Size of palette data
+    uint8_t     format;         // Color format (e.g., RGB565)
+    uint16_t    entry_count;    // Number of palette entries
+    uint8_t     padding;        // Padding byte for alignment
+} PVPHeader;
+
+// Function to load a PVP file
+bool load_pvp_palette(const char* filename, uint16_t* palette, int max_entries) {
+    FILE* file = fopen(filename, "rb");
+    if (!file) return false;
+
+    PVPHeader header;
+    fread(&header, sizeof(PVPHeader), 1, file);
+
+    // Validate magic identifier
+    if (memcmp(header.magic, "PVPL", 4) != 0) {
+        fclose(file);
+        return false;
+    }
+
+    // Read palette entries (limit to max_entries or header.entry_count, whichever is smaller)
+    int entries_to_read = (header.entry_count < max_entries) ? header.entry_count : max_entries;
+    fread(palette, sizeof(uint16_t), entries_to_read, file);
+
+    fclose(file);
+    return true;
+}
+```
+
+## Compatibility
+
+The `.pvp` format is primarily associated with:
+
+- Sega Dreamcast development
+- PowerVR-based arcade hardware
+- Certain mobile PowerVR implementations
+
+Most modern texture formats have moved away from palettized textures, but understanding the `.pvp` format remains relevant for:
+
+- Dreamcast game preservation and emulation
+- Retro game development targeting the Dreamcast
+- Working with legacy PowerVR content

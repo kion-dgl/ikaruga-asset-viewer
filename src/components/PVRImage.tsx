@@ -25,6 +25,27 @@ const PVR_DATA_FORMATS = {
   TWIDDLED_RECTANGLE: 0x0d,
 };
 
+// Default grayscale palettes
+const createGrayscalePalette16 = (): Uint32Array => {
+  const palette = new Uint32Array(16);
+  for (let i = 0; i < 16; i++) {
+    const value = Math.floor((i / 15) * 255);
+    palette[i] = (255 << 24) | (value << 16) | (value << 8) | value; // ARGB format
+  }
+  return palette;
+};
+
+const createGrayscalePalette256 = (): Uint32Array => {
+  const palette = new Uint32Array(256);
+  for (let i = 0; i < 256; i++) {
+    palette[i] = (255 << 24) | (i << 16) | (i << 8) | i; // ARGB format
+  }
+  return palette;
+};
+
+const DEFAULT_GRAYSCALE_PALETTE_16 = createGrayscalePalette16();
+const DEFAULT_GRAYSCALE_PALETTE_256 = createGrayscalePalette256();
+
 interface PVRImageProps {
   assetPath: string;
   alt?: string;
@@ -237,6 +258,30 @@ const PVRImage: React.FC<PVRImageProps> = ({
       codebook
     ) {
       decodeVQ(view, offset, pixels, header, codebook);
+    } else if (
+      dataFormat === PVR_DATA_FORMATS.PALETTIZE4 ||
+      dataFormat === PVR_DATA_FORMATS.PALETTIZE4_MM
+    ) {
+      decodePalettized(
+        view,
+        offset,
+        pixels,
+        header,
+        16,
+        DEFAULT_GRAYSCALE_PALETTE_16,
+      );
+    } else if (
+      dataFormat === PVR_DATA_FORMATS.PALETTIZE8 ||
+      dataFormat === PVR_DATA_FORMATS.PALETTIZE8_MM
+    ) {
+      decodePalettized(
+        view,
+        offset,
+        pixels,
+        header,
+        256,
+        DEFAULT_GRAYSCALE_PALETTE_256,
+      );
     } else if (dataFormat === PVR_DATA_FORMATS.TWIDDLED_RECTANGLE) {
       decodeTwiddledRectangle(view, offset, pixels, header, colorFormat);
     } else if (dataFormat === PVR_DATA_FORMATS.RECTANGLE) {
@@ -500,6 +545,94 @@ const PVRImage: React.FC<PVRImageProps> = ({
           const pixel = view.getUint16(offset + i * 2, true);
           const rgba = convertPixelFormat(pixel, colorFormat);
           pixels[i] = rgba;
+        }
+      }
+    }
+  };
+
+  /**
+   * Decode palettized texture using a provided palette
+   */
+  const decodePalettized = (
+    view: DataView,
+    offset: number,
+    pixels: Uint32Array,
+    header: PVRHeader,
+    paletteSize: number,
+    defaultPalette: Uint32Array,
+  ): void => {
+    // Determine if we're using 4-bit (16 colors) or 8-bit (256 colors) palette
+    const is4Bit = paletteSize === 16;
+
+    // Calculate pixel data offset - palette data comes before pixel indices
+    let pixelOffset = offset;
+
+    // Try to read palette from file if available
+    const palette = new Uint32Array(paletteSize);
+    let usePaletteFromFile = false;
+
+    // Check if there's enough data for a palette
+    if (offset + paletteSize * 2 <= view.byteLength) {
+      try {
+        // Read palette entries (usually 16-bit color values)
+        for (let i = 0; i < paletteSize; i++) {
+          if (offset + i * 2 + 2 <= view.byteLength) {
+            const colorValue = view.getUint16(offset + i * 2, true);
+            // We would need the color format from the header, but for simplicity
+            // we'll assume ARGB1555 or RGB565 based on paletteSize
+            const colorFormat = is4Bit
+              ? PVR_FORMATS.ARGB1555
+              : PVR_FORMATS.RGB565;
+            palette[i] = convertPixelFormat(colorValue, colorFormat);
+            usePaletteFromFile = true;
+          }
+        }
+
+        // Skip past palette data to get to the pixel indices
+        pixelOffset += paletteSize * 2;
+      } catch (e) {
+        console.warn(
+          "Error reading palette, falling back to default grayscale",
+          e,
+        );
+        usePaletteFromFile = false;
+      }
+    }
+
+    // Use default grayscale palette if we couldn't read one from the file
+    const activePalette = usePaletteFromFile ? palette : defaultPalette;
+
+    // Now decode the pixel data using the palette
+    if (is4Bit) {
+      // 4-bit indices (2 pixels per byte)
+      for (let y = 0; y < header.height; y++) {
+        for (let x = 0; x < header.width; x += 2) {
+          const byteIndex = Math.floor(x / 2) + y * Math.ceil(header.width / 2);
+
+          if (pixelOffset + byteIndex < view.byteLength) {
+            const byte = view.getUint8(pixelOffset + byteIndex);
+            const index1 = (byte >> 4) & 0x0f; // High 4 bits
+            const index2 = byte & 0x0f; // Low 4 bits
+
+            pixels[y * header.width + x] = activePalette[index1];
+
+            // Make sure we don't go out of bounds for odd widths
+            if (x + 1 < header.width) {
+              pixels[y * header.width + x + 1] = activePalette[index2];
+            }
+          }
+        }
+      }
+    } else {
+      // 8-bit indices (1 pixel per byte)
+      for (let y = 0; y < header.height; y++) {
+        for (let x = 0; x < header.width; x++) {
+          const byteIndex = x + y * header.width;
+
+          if (pixelOffset + byteIndex < view.byteLength) {
+            const index = view.getUint8(pixelOffset + byteIndex);
+            pixels[y * header.width + x] = activePalette[index];
+          }
         }
       }
     }
