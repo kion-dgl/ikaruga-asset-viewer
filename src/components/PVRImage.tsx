@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 interface PVRImageProps {
   width?: number;
@@ -14,6 +14,11 @@ const PVRImage: React.FC<PVRImageProps> = ({
   alt = "PVR Texture",
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+
+  // State for tracking mouse position
+  const [rotation, setRotation] = useState({ x: 0, y: 0 });
+  const [isHovering, setIsHovering] = useState(false);
 
   // Ensure the canvas is drawn after component mount and on any prop changes
   useEffect(() => {
@@ -47,20 +52,76 @@ const PVRImage: React.FC<PVRImageProps> = ({
     ctx.fillText(assetPath || "PVR Texture", width / 2, height / 2);
   };
 
+  // Handle mouse movement for 3D effect
+  const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!cardRef.current) return;
+
+    const card = cardRef.current;
+    const rect = card.getBoundingClientRect();
+
+    // Calculate mouse position relative to the card
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    // Calculate rotation based on mouse position
+    // We'll rotate more when mouse is near edges
+    const rotateX = (y / rect.height - 0.5) * -40; // -10 to 10 degrees
+    const rotateY = (x / rect.width - 0.5) * 40; // -10 to 10 degrees
+
+    setRotation({ x: rotateX, y: rotateY });
+  };
+
+  const handleMouseEnter = () => {
+    setIsHovering(true);
+  };
+
+  const handleMouseLeave = () => {
+    setIsHovering(false);
+    // Reset rotation when mouse leaves
+    setRotation({ x: 0, y: 0 });
+  };
+
   return (
-    <canvas
-      ref={canvasRef}
-      width={width}
-      height={height}
-      className="block"
-      aria-label={alt}
+    <div
+      ref={cardRef}
+      className="pvr-image-container inline-block"
       style={{
+        perspective: "1000px",
+        transformStyle: "preserve-3d",
         borderRadius: "8px",
-        overflow: "hidden",
-        border: "2px solid white",
-        boxShadow: "0 4px 6px rgba(0, 0, 0, 0.1)",
+        padding: "6px", // Add padding for the glow effect
       }}
-    />
+      onMouseMove={handleMouseMove}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
+      <div>
+        <canvas
+          ref={canvasRef}
+          width={width}
+          height={height}
+          className="block"
+          aria-label={alt}
+          style={{
+            transform: isHovering
+              ? `rotateX(${rotation.x}deg) rotateY(${rotation.y}deg)`
+              : "rotateX(0deg) rotateY(0deg)",
+            transition: isHovering
+              ? "transform 0.1s ease-out"
+              : "transform 0.5s ease-out",
+            transformStyle: "preserve-3d",
+            borderRadius: "8px",
+            overflow: "hidden",
+            border: "2px solid white",
+            boxShadow: isHovering
+              ? `0 10px 20px rgba(0, 0, 0, 0.2),
+                 0 0 15px rgba(59, 130, 246, 0.5)`
+              : "0 4px 6px rgba(0, 0, 0, 0.1)",
+            willChange: "transform, box-shadow", // Optimization for animations
+          }}
+        />
+      </div>
+    </div>
   );
 };
 
