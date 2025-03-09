@@ -7,6 +7,35 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 The PVR (PowerVR) texture format is the native texture format used by the Sega Dreamcast's PowerVR2 (CLX2) graphics hardware. This format was optimized for the specific architecture of the PowerVR GPU, providing efficient texture data storage and fast rendering performance.
 
+## GBIX Header Extension
+
+Some PVR files in Dreamcast games (including Ikaruga) contain an additional `GBIX` header section before the standard `PVRT` section. This extension was commonly used to associate textures with a global identifier.
+
+### GBIX Structure
+
+```
++----------------+
+| "GBIX"         | 4 bytes - Magic identifier
++----------------+
+| Section Size   | 4 bytes - Size of GBIX data (typically 8)
++----------------+
+| Global Index   | 4 bytes - Texture global identifier
++----------------+
+| (padding)      | Variable - To align to 8 bytes
++----------------+
+| "PVRT"         | 4 bytes - Standard PVR magic identifier
++----------------+
+| ... PVR data ...
++----------------+
+```
+
+The Global Index value is often used by the game engine to:
+- Track and reference textures in memory
+- Associate textures with specific models or objects
+- Handle texture caching and replacement
+
+When working with PVR files that contain a GBIX header, parsers must skip this section (typically 16 bytes total) before processing the actual PVRT data.
+
 ## File Structure
 
 A PVR file consists of a header followed by texture data:

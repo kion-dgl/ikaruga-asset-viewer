@@ -26,8 +26,6 @@ const PVR_DATA_FORMATS = {
 };
 
 interface PVRImageProps {
-  width?: number;
-  height?: number;
   assetPath: string;
   alt?: string;
 }
@@ -38,14 +36,13 @@ interface PVRHeader {
   width: number;
   height: number;
   hasMipmaps: boolean;
+  globalIndex?: number;
 }
 
 // A cache for morton order lookups to avoid recalculating
 const mortonLookupTable: Record<string, number> = {};
 
 const PVRImage: React.FC<PVRImageProps> = ({
-  width = 256,
-  height = 256,
   assetPath,
   alt = "PVR Texture",
 }) => {
@@ -112,18 +109,41 @@ const PVRImage: React.FC<PVRImageProps> = ({
     const view = new DataView(buffer);
     let offset = 0;
 
-    // Check magic identifier (PVRT)
+    // Check for GBIX header (some Dreamcast PVRs have this)
+    const firstMagic = String.fromCharCode(
+      view.getUint8(offset),
+      view.getUint8(offset + 1),
+      view.getUint8(offset + 2),
+      view.getUint8(offset + 3),
+    );
+
+    let globalIndex: number | undefined = undefined;
+
+    if (firstMagic === "GBIX") {
+      // This is a GBIX header, read the section size
+      const gbixSize = view.getUint32(offset + 4, true);
+
+      // Read the global index if present
+      if (gbixSize >= 4) {
+        globalIndex = view.getUint32(offset + 8, true);
+      }
+
+      // Skip past the GBIX section (header + size + data)
+      offset += 8 + gbixSize;
+    }
+
+    // Now check for PVRT header
     const magic = String.fromCharCode(
       view.getUint8(offset),
       view.getUint8(offset + 1),
       view.getUint8(offset + 2),
       view.getUint8(offset + 3),
     );
-    offset += 4;
 
     if (magic !== "PVRT") {
       throw new Error("Invalid PVR file format (missing PVRT header)");
     }
+    offset += 4;
 
     // Skip data size
     offset += 4;
@@ -155,7 +175,10 @@ const PVRImage: React.FC<PVRImageProps> = ({
         PVR_DATA_FORMATS.PALETTIZE4_MM,
         PVR_DATA_FORMATS.PALETTIZE8_MM,
       ].includes(dataFormat),
+      globalIndex,
     };
+
+    console.log(`PVR: ${assetPath}`, header);
 
     // Skip mipmaps if present
     if (header.hasMipmaps) {
@@ -175,6 +198,15 @@ const PVRImage: React.FC<PVRImageProps> = ({
       dataFormat === PVR_DATA_FORMATS.VQ ||
       dataFormat === PVR_DATA_FORMATS.VQ_MM
     ) {
+      // Adjust codebook size for SMALL_VQ textures
+      if (header.width <= 16 && header.height <= 16) {
+        codebookSize = 16;
+      } else if (header.width <= 32 && header.height <= 32) {
+        codebookSize = 32;
+      } else if (header.width <= 64 && header.height <= 64) {
+        codebookSize = 128;
+      }
+
       codebook = new Uint32Array(codebookSize * 4); // 4 pixels per codebook entry
 
       // Read codebook
@@ -207,6 +239,8 @@ const PVRImage: React.FC<PVRImageProps> = ({
       decodeVQ(view, offset, pixels, header, codebook);
     } else if (dataFormat === PVR_DATA_FORMATS.TWIDDLED_RECTANGLE) {
       decodeTwiddledRectangle(view, offset, pixels, header, colorFormat);
+    } else if (dataFormat === PVR_DATA_FORMATS.RECTANGLE) {
+      decodeRectangle(view, offset, pixels, header, colorFormat);
     } else {
       // Default - try to decode as raw data
       decodeRaw(view, offset, pixels, header, colorFormat);
@@ -356,7 +390,7 @@ const PVRImage: React.FC<PVRImageProps> = ({
         if (offset + i < view.byteLength) {
           const index = view.getUint8(offset + i);
 
-          if (index < 256) {
+          if (index < codebook.length / 4) {
             // Copy the 2x2 block from codebook
             if (y < header.height && x < header.width)
               pixels[y * header.width + x] = codebook[index * 4];
@@ -426,6 +460,29 @@ const PVRImage: React.FC<PVRImageProps> = ({
   };
 
   /**
+   * Decode a rectangle (untwiddled) texture
+   */
+  const decodeRectangle = (
+    view: DataView,
+    offset: number,
+    pixels: Uint32Array,
+    header: PVRHeader,
+    colorFormat: number,
+  ): void => {
+    for (let y = 0; y < header.height; y++) {
+      for (let x = 0; x < header.width; x++) {
+        const i = y * header.width + x;
+
+        if (offset + i * 2 + 2 <= view.byteLength) {
+          const pixel = view.getUint16(offset + i * 2, true);
+          const rgba = convertPixelFormat(pixel, colorFormat);
+          pixels[i] = rgba;
+        }
+      }
+    }
+  };
+
+  /**
    * Decode raw (uncompressed, untwiddled) texture data
    */
   const decodeRaw = (
@@ -456,16 +513,29 @@ const PVRImage: React.FC<PVRImageProps> = ({
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
+    // Default dimensions for placeholder
+    const placeholderWidth = 256;
+    const placeholderHeight = 256;
+
+    // Set canvas size to placeholder dimensions
+    canvas.width = placeholderWidth;
+    canvas.height = placeholderHeight;
+
     // Clear canvas
-    ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, placeholderWidth, placeholderHeight);
 
     // Draw a simple gradient background
-    const gradient = ctx.createLinearGradient(0, 0, width, height);
+    const gradient = ctx.createLinearGradient(
+      0,
+      0,
+      placeholderWidth,
+      placeholderHeight,
+    );
     gradient.addColorStop(0, "#3b82f6"); // Blue
     gradient.addColorStop(1, "#8b5cf6"); // Violet
 
     ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, width, height);
+    ctx.fillRect(0, 0, placeholderWidth, placeholderHeight);
 
     // Add text showing loading/error state
     ctx.fillStyle = "white";
@@ -474,11 +544,15 @@ const PVRImage: React.FC<PVRImageProps> = ({
     ctx.textBaseline = "middle";
 
     if (loading) {
-      ctx.fillText("Loading...", width / 2, height / 2);
+      ctx.fillText("Loading...", placeholderWidth / 2, placeholderHeight / 2);
     } else if (error) {
-      ctx.fillText(`Error: ${error}`, width / 2, height / 2);
+      ctx.fillText(
+        `Error: ${error}`,
+        placeholderWidth / 2,
+        placeholderHeight / 2,
+      );
     } else if (!imageData) {
-      ctx.fillText(assetPath, width / 2, height / 2);
+      ctx.fillText(assetPath, placeholderWidth / 2, placeholderHeight / 2);
     }
   };
 
@@ -516,7 +590,15 @@ const PVRImage: React.FC<PVRImageProps> = ({
     if (loading || error || !imageData) {
       drawPlaceholder();
     }
-  }, [loading, error, imageData, width, height]);
+  }, [loading, error, imageData]);
+
+  // Update canvas dimensions when pvrHeader is available
+  useEffect(() => {
+    if (pvrHeader && canvasRef.current) {
+      canvasRef.current.width = pvrHeader.width;
+      canvasRef.current.height = pvrHeader.height;
+    }
+  }, [pvrHeader]);
 
   return (
     <div
@@ -535,8 +617,6 @@ const PVRImage: React.FC<PVRImageProps> = ({
       <div>
         <canvas
           ref={canvasRef}
-          width={pvrHeader?.width || width}
-          height={pvrHeader?.height || height}
           className="block"
           aria-label={alt}
           style={{
