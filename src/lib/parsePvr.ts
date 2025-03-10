@@ -143,6 +143,11 @@ export const parsePvr = async (
   const imageData = new ImageData(header.width, header.height);
 
   switch (dataFormat) {
+    case PVR_DATA_FORMATS.TWIDDLED:
+    case PVR_DATA_FORMATS.TWIDDLED_MM:
+    case PVR_DATA_FORMATS.TWIDDLED_MM_ALT:
+      decodeTwiddle(view, offset, header, imageData);
+      break;
     case PVR_DATA_FORMATS.VQ:
     case PVR_DATA_FORMATS.VQ_MM:
     case PVR_DATA_FORMATS.SMALL_VQ:
@@ -222,6 +227,30 @@ const drawImage = (
   }
 };
 
+const decodeTwiddle = (
+  view: DataView,
+  offset: number,
+  header: PVRHeader,
+  imageData: ImageData,
+) => {
+  const { hasMipmaps, width } = header;
+
+  if (hasMipmaps) {
+    let seekOfs = 0x02;
+    for (let i = 0; i <= 10; i++) {
+      let mipWidth = 0x01 << i;
+      if (width === mipWidth) {
+        break;
+      }
+      seekOfs += mipWidth * mipWidth * 2;
+    }
+    offset += seekOfs;
+  }
+
+  const image = readTwiddled(view, offset, width, false);
+  drawImage(header, image, imageData);
+};
+
 const decodeVector = (
   view: DataView,
   offset: number,
@@ -283,8 +312,8 @@ const decodeVector = (
     offset += seekOfs;
   }
 
-  let image = new Array(width * height);
-  let dataBody = readTwiddled(view, offset, width / 2, true);
+  const image = new Array(width * height);
+  const dataBody = readTwiddled(view, offset, width / 2, true);
 
   let x = 0;
   let y = 0;
