@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { parsePvr } from "../lib/parsePvr";
+import { parsePvr, type PVRHeader } from "../lib/parsePvr";
 
 interface PVRImageProps {
   assetPath?: string;
@@ -14,7 +14,7 @@ const PVRImage: React.FC<PVRImageProps> = ({
   const cardRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
-
+  const [header, setHeader] = useState<PVRHeader | null>(null);
   // State for tracking mouse position for 3D effect
   const [rotation, setRotation] = useState({ x: 0, y: 0 });
   const [isHovering, setIsHovering] = useState(false);
@@ -77,7 +77,7 @@ const PVRImage: React.FC<PVRImageProps> = ({
       try {
         setLoading(true);
         setError(null);
-        drawPlaceholder(); // Show loading state
+        // drawPlaceholder(); // Show loading state
 
         // Fetch the PVR file
         const response = await fetch(`/iso/${assetPath}`);
@@ -87,6 +87,7 @@ const PVRImage: React.FC<PVRImageProps> = ({
 
         const buffer = await response.arrayBuffer();
         const { header, imageData } = await parsePvr(buffer);
+        setHeader(header);
 
         // Set canvas dimensions first
         canvas.width = header.width;
@@ -163,6 +164,15 @@ const PVRImage: React.FC<PVRImageProps> = ({
       onMouseLeave={handleMouseLeave}
     >
       <div>
+        {header && (
+          <ul>
+            <li>Type: {header.dataFormat}</li>
+            <li>Colors: {header.colorFormat}</li>
+            <li>Width: {header.width}</li>
+            <li>Height: {header.height}</li>
+          </ul>
+        )}
+
         <canvas
           ref={canvasRef}
           className="block"
