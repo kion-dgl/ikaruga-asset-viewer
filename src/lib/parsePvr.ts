@@ -185,6 +185,43 @@ const readTwiddled = (
   }
 };
 
+const drawImage = (
+  header: PVRHeader,
+  image: number[],
+  imageData: ImageData,
+) => {
+  let n = 0;
+  const { width, height, colorFormat } = header;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+
+      switch (colorFormat) {
+        case PVR_FORMATS.ARGB1555:
+          imageData.data[n + 3] = image[i] & 0x8000 ? 255 : 0;
+          imageData.data[n + 0] = (image[i] & 0x7c00) >> 7;
+          imageData.data[n + 1] = (image[i] & 0x03e0) >> 2;
+          imageData.data[n + 2] = (image[i] & 0x001f) << 3;
+          break;
+        case PVR_FORMATS.RGB565:
+          imageData.data[n + 0] = (image[i] >> 8) & (0x1f << 3);
+          imageData.data[n + 1] = (image[i] >> 3) & (0x3f << 2);
+          imageData.data[n + 2] = (image[i] << 3) & (0x1f << 3);
+          imageData.data[n + 3] = 255;
+          break;
+        case PVR_FORMATS.ARGB4444:
+          imageData.data[n + 3] = ((image[i] >> 8) & 0xf0) / 255;
+          imageData.data[n + 0] = (image[i] >> 4) & 0xf0;
+          imageData.data[n + 1] = (image[i] >> 0) & 0xf0;
+          imageData.data[n + 2] = (image[i] << 4) & 0xf0;
+          break;
+      }
+
+      n += 4;
+    }
+  }
+};
+
 const decodeVector = (
   view: DataView,
   offset: number,
@@ -266,5 +303,5 @@ const decodeVector = (
     }
   }
 
-  return image;
+  drawImage(header, image, imageData);
 };
