@@ -147,7 +147,7 @@ export const parsePvr = async (
     case PVR_DATA_FORMATS.VQ_MM:
     case PVR_DATA_FORMATS.SMALL_VQ:
     case PVR_DATA_FORMATS.SMALL_VQ_MM:
-      const image = decodeVector(view, offset, header, imageData);
+      decodeVector(view, offset, header, imageData);
       break;
     default:
       throw new Error("Data format not supported: " + dataFormat.toString(16));
@@ -277,8 +277,10 @@ const decodeVector = (
         break;
       }
 
-      offset += Math.floor((mipWidth * mipWidth) / 4);
+      seekOfs += (mipWidth * mipWidth) / 4;
     }
+
+    offset += seekOfs;
   }
 
   let image = new Array(width * height);
