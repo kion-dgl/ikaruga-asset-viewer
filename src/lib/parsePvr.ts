@@ -161,24 +161,28 @@ const decodePalette = (
   n = 0;
   let d = 0;
   const dataBody = readTwiddled(view, offset, width / 2, true);
-  for (let y = 0; y < height; y += 2) {
-    const pos = n;
-    for (let x = 0; x < width; x++) {
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x += 2) {
       const byte = dataBody[n++];
       const a = byte & 0x0f;
       const b = byte >> 4;
-      imageData.data[d++] = pal[a][0];
-      imageData.data[d++] = pal[a][1];
-      imageData.data[d++] = pal[a][2];
-      imageData.data[d++] = pal[a][3];
 
-      imageData.data[d++] = pal[b][0];
-      imageData.data[d++] = pal[b][1];
-      imageData.data[d++] = pal[b][2];
-      imageData.data[d++] = pal[b][3];
+      // Compute the correct data index manually
+      let flippedY = height - y - 1;
+      let indexA = (flippedY * width + x) * 4;
+      let indexB = (flippedY * width + (x + 1)) * 4;
+
+      imageData.data[indexA] = pal[a][0];
+      imageData.data[indexA + 1] = pal[a][1];
+      imageData.data[indexA + 2] = pal[a][2];
+      imageData.data[indexA + 3] = pal[a][3];
+
+      imageData.data[indexB] = pal[b][0];
+      imageData.data[indexB + 1] = pal[b][1];
+      imageData.data[indexB + 2] = pal[b][2];
+      imageData.data[indexB + 3] = pal[b][3];
     }
   }
-  dataBody.forEach((byte) => {});
 };
 
 const readTwiddled = (

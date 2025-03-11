@@ -3,6 +3,7 @@ title: PVR Texture Format
 description: Technical documentation of the PowerVR texture format used in Dreamcast games
 ---
 
+import DetwiddlingVisualizer from '@components/DetwiddlingVisualizer';
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 The PVR (PowerVR) texture format is the native texture format used by the Sega Dreamcast's PowerVR2 (CLX2) graphics hardware. This format was optimized for the specific architecture of the PowerVR GPU, providing efficient texture data storage and fast rendering performance.
@@ -125,9 +126,8 @@ uint32_t toMorton(uint16_t x, uint16_t y) {
 }
 ```
 
-<div className="flex justify-center my-8">
-    <img src="/diagrams/morton-order.svg" alt="Morton Order Diagram" width="400" />
-</div>
+<DetwiddlingVisualizer client:load initialWidth={16} initialHeight={16} />
+
 
 ## Vector Quantization (VQ)
 
