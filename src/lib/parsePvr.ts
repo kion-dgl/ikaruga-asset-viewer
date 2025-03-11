@@ -26,27 +26,6 @@ enum PVR_DATA_FORMATS {
   TWIDDLED_MM_ALT = 0x12,
 }
 
-// Default grayscale palettes
-const createGrayscalePalette16 = (): Uint32Array => {
-  const palette = new Uint32Array(16);
-  for (let i = 0; i < 16; i++) {
-    const value = Math.floor((i / 15) * 255);
-    palette[i] = (255 << 24) | (value << 16) | (value << 8) | value; // ARGB format
-  }
-  return palette;
-};
-
-const createGrayscalePalette256 = (): Uint32Array => {
-  const palette = new Uint32Array(256);
-  for (let i = 0; i < 256; i++) {
-    palette[i] = (255 << 24) | (i << 16) | (i << 8) | i; // ARGB format
-  }
-  return palette;
-};
-
-const DEFAULT_GRAYSCALE_PALETTE_16 = createGrayscalePalette16();
-const DEFAULT_GRAYSCALE_PALETTE_256 = createGrayscalePalette256();
-
 export interface PVRHeader {
   colorFormat: number;
   dataFormat: number;
@@ -154,11 +133,45 @@ export const parsePvr = async (
     case PVR_DATA_FORMATS.SMALL_VQ_MM:
       decodeVector(view, offset, header, imageData);
       break;
+    case PVR_DATA_FORMATS.PALETTIZE4:
+      decodePalette(view, offset, header, imageData);
+      break;
     default:
       throw new Error("Data format not supported: " + dataFormat.toString(16));
   }
 
   return { header, imageData };
+};
+
+const decodePalette = (
+  view: DataView,
+  offset: number,
+  header: PVRHeader,
+  imageData: ImageData,
+) => {
+  const { width, height } = header;
+  const pal: number[][] = [];
+  let n = 0;
+  for (let i = 0; i < 16; i++) {
+    pal.push([n, n, n, 255]);
+    n += 16;
+    n > 255 ? (n = 255) : n;
+  }
+
+  n = 0;
+  const dataBody = readTwiddled(view, offset, width / 2, true);
+  dataBody.forEach((byte) => {
+    const a = byte & 0x0f;
+    const b = byte >> 4;
+    imageData.data[n++] = pal[a][0];
+    imageData.data[n++] = pal[a][1];
+    imageData.data[n++] = pal[a][2];
+    imageData.data[n++] = pal[a][3];
+    imageData.data[n++] = pal[b][0];
+    imageData.data[n++] = pal[b][1];
+    imageData.data[n++] = pal[b][2];
+    imageData.data[n++] = pal[b][3];
+  });
 };
 
 const readTwiddled = (
