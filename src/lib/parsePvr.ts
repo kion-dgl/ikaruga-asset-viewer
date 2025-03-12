@@ -166,7 +166,7 @@ const createDetwiddlingLookupTable = (
       const index = getTwiddledIndex(x, y, width, height);
 
       // Store the (x, y) coordinate at the corresponding index
-      result[index] = { x, y };
+      result[index] = { x: y, y: x };
     }
   }
 
@@ -248,23 +248,37 @@ const decodePalette = (
     n > 255 ? (n = 255) : n;
   }
 
-  const lookUpTable = createDetwiddlingLookupTable(width, height);
+  const size = width > height ? height : width;
+
+  const lookUpTable = createDetwiddlingLookupTable(size, size);
   const bodyData: number[] = [];
 
   for (offset; offset < view.byteLength; offset++) {
     const byte = view.getUint8(offset);
     bodyData.push(byte & 0x0f);
-    bodyData.push(byte >> 4);
+    bodyData.push(byte & 0x0f);
   }
 
-  bodyData.forEach((palIndex, index) => {
+  n = 0;
+  for (let i = 0; i < bodyData.length / 2; i++) {
+    const palIndex = bodyData[n++];
     const p = pal[palIndex];
-    const { x, y } = lookUpTable[index];
+    const { x, y } = lookUpTable[i];
     imageData.data[y * width * 4 + x * 4 + 0] = p[0];
     imageData.data[y * width * 4 + x * 4 + 1] = p[1];
     imageData.data[y * width * 4 + x * 4 + 2] = p[2];
     imageData.data[y * width * 4 + x * 4 + 3] = p[3];
-  });
+  }
+
+  for (let i = 0; i < bodyData.length / 2; i++) {
+    const palIndex = bodyData[n++];
+    const p = pal[palIndex];
+    const { x, y } = lookUpTable[i];
+    imageData.data[y * width * 4 + x * 4 + width * 2 + 0] = p[0];
+    imageData.data[y * width * 4 + x * 4 + width * 2 + 1] = p[1];
+    imageData.data[y * width * 4 + x * 4 + width * 2 + 2] = p[2];
+    imageData.data[y * width * 4 + x * 4 + width * 2 + 3] = p[3];
+  }
 };
 
 const readTwiddled = (
