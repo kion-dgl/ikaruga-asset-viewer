@@ -122,6 +122,9 @@ export const parsePvr = async (
   const imageData = new ImageData(header.width, header.height);
 
   switch (dataFormat) {
+    case PVR_DATA_FORMATS.RECTANGLE:
+      decodeRectable(view, offset, header, imageData);
+      break;
     case PVR_DATA_FORMATS.TWIDDLED:
     case PVR_DATA_FORMATS.TWIDDLED_MM:
     case PVR_DATA_FORMATS.TWIDDLED_MM_ALT:
@@ -143,11 +146,50 @@ export const parsePvr = async (
   return { header, imageData };
 };
 
+const decodeRectable = (
+  view: DataView,
+  offset: number,
+  header: PVRHeader,
+  imageData: ImageData,
+) => {
+  let n = 0;
+  const { width, height, colorFormat } = header;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      const short = view.getUint16(offset, true);
+      offset += 2;
+
+      switch (colorFormat) {
+        case PVR_FORMATS.ARGB1555:
+          imageData.data[n + 3] = short & 0x8000 ? 255 : 0;
+          imageData.data[n + 0] = (short & 0x7c00) >> 7;
+          imageData.data[n + 1] = (short & 0x03e0) >> 2;
+          imageData.data[n + 2] = (short & 0x001f) << 3;
+          break;
+        case PVR_FORMATS.RGB565:
+          imageData.data[n + 0] = (short >> 8) & (0x1f << 3);
+          imageData.data[n + 1] = (short >> 3) & (0x3f << 2);
+          imageData.data[n + 2] = (short << 3) & (0x1f << 3);
+          imageData.data[n + 3] = 255;
+          break;
+        case PVR_FORMATS.ARGB4444:
+          imageData.data[n + 3] = ((short >> 8) & 0xf0) / 255;
+          imageData.data[n + 0] = (short >> 4) & 0xf0;
+          imageData.data[n + 1] = (short >> 0) & 0xf0;
+          imageData.data[n + 2] = (short << 4) & 0xf0;
+          break;
+      }
+
+      n += 4;
+    }
+  }
+};
+
 /**
  * Creates a lookup table that maps each array index in a twiddled texture
  * to its corresponding (x, y) pixel coordinates in the detwiddled format.
  */
-
 const createDetwiddlingLookupTable = (
   width: number,
   height: number,
