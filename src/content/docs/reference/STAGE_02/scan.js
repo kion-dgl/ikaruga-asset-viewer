@@ -1,5 +1,5 @@
 import { readdirSync, writeFileSync } from "fs";
-const dir = "/Users/kion/dev/ikaruga-asset-viewer/public/iso/STG01";
+const dir = "/Users/kion/dev/ikaruga-asset-viewer/public/iso/STG02";
 const files = readdirSync(dir).filter((file) => file.endsWith(".PVR"));
 console.log(files);
 
@@ -16,7 +16,7 @@ import PVRImage from '@components/PVRImage';
 
 <PVRImage
   client:load
-  assetPath="STG01/${file}"
+  assetPath="STG02/${file}"
 />
 `,
   );

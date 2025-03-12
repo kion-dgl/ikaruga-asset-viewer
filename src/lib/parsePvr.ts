@@ -143,6 +143,96 @@ export const parsePvr = async (
   return { header, imageData };
 };
 
+/**
+ * Creates a lookup table that maps each array index in a twiddled texture
+ * to its corresponding (x, y) pixel coordinates in the detwiddled format.
+ */
+
+const createDetwiddlingLookupTable = (
+  width: number,
+  height: number,
+): { x: number; y: number }[] => {
+  // Validate input dimensions (must be powers of 2)
+  if (!isPowerOfTwo(width) || !isPowerOfTwo(height)) {
+    throw new Error("Width and height must be powers of 2");
+  }
+
+  const result: { x: number; y: number }[] = new Array(width * height);
+
+  // Fill the lookup table
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      // Calculate the twiddled index for this (x, y) coordinate
+      const index = getTwiddledIndex(x, y, width, height);
+
+      // Store the (x, y) coordinate at the corresponding index
+      result[index] = { x, y };
+    }
+  }
+
+  return result;
+};
+
+/**
+ * Checks if a number is a power of 2
+ * @param {number} n The number to check
+ * @returns {boolean} True if n is a power of 2
+ */
+const isPowerOfTwo = (n: number): boolean => {
+  return n > 0 && (n & (n - 1)) === 0;
+};
+
+/**
+ * Calculates the twiddled index (Morton/Z-order) for a given (x, y) coordinate
+ * @param {number} x The x coordinate
+ * @param {number} y The y coordinate
+ * @param {number} width The width of the texture
+ * @param {number} height The height of the texture
+ * @returns {number} The index in the twiddled array
+ */
+const getTwiddledIndex = (
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+): number => {
+  // Find the smallest power of 2 that can contain both dimensions
+  const maxDimension = Math.max(width, height);
+
+  // Calculate the Morton number by interleaving bits
+  let index = 0;
+  let bitPosition = 1;
+
+  // Interleave bits from x and y coordinates to create the Z-order curve
+  for (let i = 0; i < 32; i++) {
+    // 32-bit max (more than enough for texture coordinates)
+    if (x & (1 << i)) {
+      index |= bitPosition;
+    }
+    bitPosition <<= 1;
+
+    if (y & (1 << i)) {
+      index |= bitPosition;
+    }
+    bitPosition <<= 1;
+
+    // If we've processed all possible bits for both dimensions, we're done
+    if (1 << (i + 1) > maxDimension) {
+      break;
+    }
+  }
+
+  // Return the index (checking if it's within bounds)
+  if (index >= width * height) {
+    // This shouldn't happen with valid power-of-2 dimensions
+    throw new Error(
+      `Generated index ${index} is out of bounds for texture ${width}x${height}`,
+    );
+  }
+
+  return index;
+};
+
 const decodePalette = (
   view: DataView,
   offset: number,
@@ -158,31 +248,23 @@ const decodePalette = (
     n > 255 ? (n = 255) : n;
   }
 
-  n = 0;
-  let d = 0;
-  const dataBody = readTwiddled(view, offset, width / 2, true);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x += 2) {
-      const byte = dataBody[n++];
-      const a = byte & 0x0f;
-      const b = byte >> 4;
+  const lookUpTable = createDetwiddlingLookupTable(width, height);
+  const bodyData: number[] = [];
 
-      // Compute the correct data index manually
-      let flippedY = height - y - 1;
-      let indexA = (flippedY * width + x) * 4;
-      let indexB = (flippedY * width + (x + 1)) * 4;
-
-      imageData.data[indexA] = pal[a][0];
-      imageData.data[indexA + 1] = pal[a][1];
-      imageData.data[indexA + 2] = pal[a][2];
-      imageData.data[indexA + 3] = pal[a][3];
-
-      imageData.data[indexB] = pal[b][0];
-      imageData.data[indexB + 1] = pal[b][1];
-      imageData.data[indexB + 2] = pal[b][2];
-      imageData.data[indexB + 3] = pal[b][3];
-    }
+  for (offset; offset < view.byteLength; offset++) {
+    const byte = view.getUint8(offset);
+    bodyData.push(byte & 0x0f);
+    bodyData.push(byte >> 4);
   }
+
+  bodyData.forEach((palIndex, index) => {
+    const p = pal[palIndex];
+    const { x, y } = lookUpTable[index];
+    imageData.data[y * width * 4 + x * 4 + 0] = p[0];
+    imageData.data[y * width * 4 + x * 4 + 1] = p[1];
+    imageData.data[y * width * 4 + x * 4 + 2] = p[2];
+    imageData.data[y * width * 4 + x * 4 + 3] = p[3];
+  });
 };
 
 const readTwiddled = (
