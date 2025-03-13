@@ -368,9 +368,10 @@ const decodePalette = (
   }
 
   if (width > height) {
-    const size = width > height ? height : width;
+    console.log("here!!!");
+    const count = width / height;
 
-    const lookUpTable = createDetwiddlingLookupTable(size, size);
+    const lookUpTable = createDetwiddlingLookupTable(height, height);
     const bodyData: number[] = [];
 
     for (offset; offset < view.byteLength; offset++) {
@@ -380,24 +381,41 @@ const decodePalette = (
     }
 
     n = 0;
-    for (let i = 0; i < bodyData.length / 2; i++) {
-      const palIndex = bodyData[n++];
-      const p = pal[palIndex];
-      const { x, y } = lookUpTable[i];
-      imageData.data[y * width * 4 + x * 4 + 0] = p[0];
-      imageData.data[y * width * 4 + x * 4 + 1] = p[1];
-      imageData.data[y * width * 4 + x * 4 + 2] = p[2];
-      imageData.data[y * width * 4 + x * 4 + 3] = p[3];
+    for (let c = 0; c < count; c++) {
+      for (let i = 0; i < bodyData.length / count; i++) {
+        const palIndex = bodyData[n++];
+        const p = pal[palIndex];
+        const { x, y } = lookUpTable[i];
+        imageData.data[y * width * 4 + x * 4 + width * c * 2 + 0] = p[0];
+        imageData.data[y * width * 4 + x * 4 + width * c * 2 + 1] = p[1];
+        imageData.data[y * width * 4 + x * 4 + width * c * 2 + 2] = p[2];
+        imageData.data[y * width * 4 + x * 4 + width * c * 2 + 3] = p[3];
+      }
+    }
+  } else if (height > width) {
+    const count = height / width;
+
+    const lookUpTable = createDetwiddlingLookupTable(width, width);
+    const bodyData: number[] = [];
+
+    for (offset; offset < view.byteLength; offset++) {
+      const byte = view.getUint8(offset);
+      bodyData.push(byte & 0x0f);
+      bodyData.push(byte & 0x0f);
     }
 
-    for (let i = 0; i < bodyData.length / 2; i++) {
-      const palIndex = bodyData[n++];
-      const p = pal[palIndex];
-      const { x, y } = lookUpTable[i];
-      imageData.data[y * width * 4 + x * 4 + width * 2 + 0] = p[0];
-      imageData.data[y * width * 4 + x * 4 + width * 2 + 1] = p[1];
-      imageData.data[y * width * 4 + x * 4 + width * 2 + 2] = p[2];
-      imageData.data[y * width * 4 + x * 4 + width * 2 + 3] = p[3];
+    n = 0;
+    for (let c = 0; c < count; c++) {
+      const blockStart = width * width * 4 * c;
+      for (let i = 0; i < bodyData.length / count; i++) {
+        const palIndex = bodyData[n++];
+        const p = pal[palIndex];
+        const { x, y } = lookUpTable[i];
+        imageData.data[blockStart + y * width * 4 + x * 4 + 0] = p[0];
+        imageData.data[blockStart + y * width * 4 + x * 4 + 1] = p[1];
+        imageData.data[blockStart + y * width * 4 + x * 4 + 2] = p[2];
+        imageData.data[blockStart + y * width * 4 + x * 4 + 3] = p[3];
+      }
     }
   } else {
     const lookUpTable = createDetwiddlingLookupTable(width, height);
