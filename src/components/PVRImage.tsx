@@ -3,9 +3,38 @@ import { parsePvr, type PVRHeader } from "../lib/parsePvr";
 
 interface PVRImageProps {
   assetPath?: string;
-  palettePath?: string; // New prop for optional PVP palette file
+  palettePath?: string; // Prop for optional PVP palette file
   alt?: string;
 }
+
+// Mapping of data formats to readable names
+const DATA_FORMAT_NAMES: Record<number, string> = {
+  0x01: "TWIDDLED",
+  0x02: "TWIDDLED_MM",
+  0x03: "VQ",
+  0x04: "VQ_MM",
+  0x05: "PALETTIZE4",
+  0x06: "PALETTIZE4_MM",
+  0x07: "PALETTIZE8",
+  0x08: "PALETTIZE8_MM",
+  0x09: "RECTANGLE",
+  0x0b: "STRIDE",
+  0x0d: "TWIDDLED_RECTANGLE",
+  0x10: "SMALL_VQ",
+  0x11: "SMALL_VQ_MM",
+  0x12: "TWIDDLED_MM_ALT",
+};
+
+// Mapping of color formats to readable names
+const COLOR_FORMAT_NAMES: Record<number, string> = {
+  0x00: "ARGB1555",
+  0x01: "RGB565",
+  0x02: "ARGB4444",
+  0x03: "YUV422",
+  0x04: "BUMP",
+  0x05: "RGB555",
+  0x06: "ARGB8888",
+};
 
 const PVRImage: React.FC<PVRImageProps> = ({
   assetPath,
@@ -243,20 +272,17 @@ const PVRImage: React.FC<PVRImageProps> = ({
 
   // Get format name for display
   const getFormatName = (format: number): string => {
-    switch (format) {
-      case 0x00:
-        return "ARGB1555";
-      case 0x01:
-        return "RGB565";
-      case 0x02:
-        return "ARGB4444";
-      case 0x05:
-        return "RGB555";
-      case 0x06:
-        return "ARGB8888";
-      default:
-        return `Unknown (${format})`;
-    }
+    return COLOR_FORMAT_NAMES[format] || `Unknown (0x${format.toString(16)})`;
+  };
+
+  // Get data format name for display
+  const getDataFormatName = (format: number): string => {
+    return DATA_FORMAT_NAMES[format] || `Unknown (0x${format.toString(16)})`;
+  };
+
+  // Extract filename from path
+  const getFilename = (path: string): string => {
+    return path.split("/").pop() || path;
   };
 
   return (
@@ -275,18 +301,96 @@ const PVRImage: React.FC<PVRImageProps> = ({
     >
       <div>
         {header && (
-          <ul>
-            <li>Type: {header.dataFormat}</li>
-            <li>Colors: {header.colorFormat}</li>
-            <li>Width: {header.width}</li>
-            <li>Height: {header.height}</li>
+          <div className="pvr-metadata pb-4">
+            <h3 className="text-lg font-semibold mb-2">
+              PVR Texture Information
+            </h3>
+            <table className="w-full border-collapse mb-4 text-sm">
+              <tbody>
+                <tr className="border-b border-gray-200">
+                  <td className="py-2 pr-4 font-medium">File:</td>
+                  <td className="py-2">
+                    {assetPath ? getFilename(assetPath) : "N/A"}
+                  </td>
+                </tr>
+                <tr className="border-b border-gray-200">
+                  <td className="py-2 pr-4 font-medium">Data Format:</td>
+                  <td className="py-2">
+                    {getDataFormatName(header.dataFormat)}
+                    <span className="text-gray-500 ml-2">
+                      (0x{header.dataFormat.toString(16).padStart(2, "0")})
+                    </span>
+                  </td>
+                </tr>
+                <tr className="border-b border-gray-200">
+                  <td className="py-2 pr-4 font-medium">Color Format:</td>
+                  <td className="py-2">
+                    {getFormatName(header.colorFormat)}
+                    <span className="text-gray-500 ml-2">
+                      (0x{header.colorFormat.toString(16).padStart(2, "0")})
+                    </span>
+                  </td>
+                </tr>
+                <tr className="border-b border-gray-200">
+                  <td className="py-2 pr-4 font-medium">Dimensions:</td>
+                  <td className="py-2">
+                    {header.width} × {header.height} pixels
+                  </td>
+                </tr>
+                <tr className="border-b border-gray-200">
+                  <td className="py-2 pr-4 font-medium">Mipmaps:</td>
+                  <td className="py-2">{header.hasMipmaps ? "Yes" : "No"}</td>
+                </tr>
+                {header.globalIndex !== undefined && (
+                  <tr className="border-b border-gray-200">
+                    <td className="py-2 pr-4 font-medium">GBIX:</td>
+                    <td className="py-2">
+                      0x{header.globalIndex.toString(16).padStart(8, "0")}
+                    </td>
+                  </tr>
+                )}
+                {header.usedExternalPalette && (
+                  <tr className="border-b border-gray-200">
+                    <td className="py-2 pr-4 font-medium">
+                      Using External Palette:
+                    </td>
+                    <td className="py-2">Yes</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+
             {paletteInfo && (
               <>
-                <li>Palette: {paletteInfo.entryCount} colors</li>
-                <li>Palette Format: {getFormatName(paletteInfo.format)}</li>
+                <h3 className="text-lg font-semibold mb-2">
+                  Palette Information
+                </h3>
+                <table className="w-full border-collapse mb-4 text-sm">
+                  <tbody>
+                    <tr className="border-b border-gray-200">
+                      <td className="py-2 pr-4 font-medium">File:</td>
+                      <td className="py-2">
+                        {palettePath ? getFilename(palettePath) : "N/A"}
+                      </td>
+                    </tr>
+                    <tr className="border-b border-gray-200">
+                      <td className="py-2 pr-4 font-medium">Format:</td>
+                      <td className="py-2">
+                        {getFormatName(paletteInfo.format)}
+                        <span className="text-gray-500 ml-2">
+                          (0x{paletteInfo.format.toString(16).padStart(2, "0")})
+                        </span>
+                      </td>
+                    </tr>
+                    <tr className="border-b border-gray-200">
+                      <td className="py-2 pr-4 font-medium">Colors:</td>
+                      <td className="py-2">{paletteInfo.entryCount}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </>
             )}
-          </ul>
+          </div>
         )}
 
         <canvas
