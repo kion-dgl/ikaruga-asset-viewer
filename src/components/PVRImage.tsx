@@ -3,11 +3,13 @@ import { parsePvr, type PVRHeader } from "../lib/parsePvr";
 
 interface PVRImageProps {
   assetPath?: string;
+  palettePath?: string; // New prop for optional PVP palette file
   alt?: string;
 }
 
 const PVRImage: React.FC<PVRImageProps> = ({
   assetPath,
+  palettePath,
   alt = "PVR Texture",
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -15,6 +17,10 @@ const PVRImage: React.FC<PVRImageProps> = ({
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [header, setHeader] = useState<PVRHeader | null>(null);
+  const [paletteInfo, setPaletteInfo] = useState<{
+    format: number;
+    entryCount: number;
+  } | null>(null);
   // State for tracking mouse position for 3D effect
   const [rotation, setRotation] = useState({ x: 0, y: 0 });
   const [isHovering, setIsHovering] = useState(false);
@@ -61,6 +67,65 @@ const PVRImage: React.FC<PVRImageProps> = ({
     }
   };
 
+  // Parse a PVP (palette) file
+  const parsePVPFile = async (
+    arrayBuffer: ArrayBuffer,
+  ): Promise<{
+    format: number;
+    palette: number[];
+    entryCount: number;
+  }> => {
+    const dataView = new DataView(arrayBuffer);
+
+    // Read the PVP header
+    const magic = String.fromCharCode(
+      dataView.getUint8(0),
+      dataView.getUint8(1),
+      dataView.getUint8(2),
+      dataView.getUint8(3),
+    );
+
+    // Verify file signature (should be "PVPL")
+    if (magic !== "PVPL") {
+      throw new Error("Invalid PVP file signature. Expected 'PVPL'");
+    }
+
+    const dataSize = dataView.getUint32(4, true);
+    const format = dataView.getUint32(8, true);
+    const entryCount = dataView.getUint16(14, true);
+
+    // Calculate header size
+    const headerSize = 16; // Size of the header structure
+
+    // Parse palette data
+    const palette: number[] = [];
+    let offset = headerSize;
+
+    // Determine bytes per color entry based on format
+    let bytesPerEntry = 2; // Default to 16-bit (2 bytes)
+    if (format === 0x06) {
+      // ARGB8888
+      bytesPerEntry = 4; // 32-bit (4 bytes)
+    }
+
+    for (let i = 0; i < entryCount; i++) {
+      if (bytesPerEntry === 2) {
+        // Read 16-bit color
+        palette.push(dataView.getUint16(offset, true));
+      } else {
+        // Read 32-bit color
+        palette.push(dataView.getUint32(offset, true));
+      }
+      offset += bytesPerEntry;
+    }
+
+    return {
+      format,
+      palette,
+      entryCount,
+    };
+  };
+
   // Load and draw the PVR texture
   useEffect(() => {
     // If no asset path, just draw the placeholder
@@ -77,7 +142,6 @@ const PVRImage: React.FC<PVRImageProps> = ({
       try {
         setLoading(true);
         setError(null);
-        // drawPlaceholder(); // Show loading state
 
         // Fetch the PVR file
         const response = await fetch(`/iso/${assetPath}`);
@@ -86,7 +150,35 @@ const PVRImage: React.FC<PVRImageProps> = ({
         }
 
         const buffer = await response.arrayBuffer();
-        const { header, imageData } = await parsePvr(buffer);
+
+        // Fetch and parse palette file if provided
+        let palette = null;
+        if (palettePath) {
+          try {
+            const paletteResponse = await fetch(`/iso/${palettePath}`);
+            if (!paletteResponse.ok) {
+              console.warn(
+                `Failed to load palette: ${paletteResponse.statusText}`,
+              );
+            } else {
+              const paletteBuffer = await paletteResponse.arrayBuffer();
+              palette = await parsePVPFile(paletteBuffer);
+              setPaletteInfo({
+                format: palette.format,
+                entryCount: palette.entryCount,
+              });
+              console.log(
+                `Palette loaded: ${palette.entryCount} colors, format: 0x${palette.format.toString(16)}`,
+              );
+            }
+          } catch (err) {
+            console.warn("Error loading palette:", err);
+            // Continue without palette
+          }
+        }
+
+        // Parse the PVR with the optional palette
+        const { header, imageData } = await parsePvr(buffer, palette?.palette);
         setHeader(header);
 
         // Set canvas dimensions first
@@ -124,7 +216,7 @@ const PVRImage: React.FC<PVRImageProps> = ({
     };
 
     loadAndDrawTexture();
-  }, [assetPath]); // Only re-run when assetPath changes
+  }, [assetPath, palettePath]); // Re-run when assetPath or palettePath changes
 
   // Handle mouse movement for 3D effect
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -149,6 +241,24 @@ const PVRImage: React.FC<PVRImageProps> = ({
     setRotation({ x: 0, y: 0 });
   };
 
+  // Get format name for display
+  const getFormatName = (format: number): string => {
+    switch (format) {
+      case 0x00:
+        return "ARGB1555";
+      case 0x01:
+        return "RGB565";
+      case 0x02:
+        return "ARGB4444";
+      case 0x05:
+        return "RGB555";
+      case 0x06:
+        return "ARGB8888";
+      default:
+        return `Unknown (${format})`;
+    }
+  };
+
   return (
     <div
       ref={cardRef}
@@ -170,6 +280,12 @@ const PVRImage: React.FC<PVRImageProps> = ({
             <li>Colors: {header.colorFormat}</li>
             <li>Width: {header.width}</li>
             <li>Height: {header.height}</li>
+            {paletteInfo && (
+              <>
+                <li>Palette: {paletteInfo.entryCount} colors</li>
+                <li>Palette Format: {getFormatName(paletteInfo.format)}</li>
+              </>
+            )}
           </ul>
         )}
 
