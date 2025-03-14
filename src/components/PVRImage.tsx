@@ -7,6 +7,17 @@ interface PVRImageProps {
   alt?: string;
 }
 
+// PVR Format Constants
+enum PVR_FORMATS {
+  ARGB1555 = 0x00,
+  RGB565 = 0x01,
+  ARGB4444 = 0x02,
+  YUV422 = 0x03,
+  BUMP = 0x04,
+  RGB555 = 0x05,
+  ARGB8888 = 0x06,
+}
+
 // Mapping of data formats to readable names
 const DATA_FORMAT_NAMES: Record<number, string> = {
   0x01: "TWIDDLED",
@@ -101,7 +112,7 @@ const PVRImage: React.FC<PVRImageProps> = ({
     arrayBuffer: ArrayBuffer,
   ): Promise<{
     format: number;
-    palette: number[];
+    palette: number[][];
     entryCount: number;
   }> => {
     const dataView = new DataView(arrayBuffer);
@@ -127,25 +138,14 @@ const PVRImage: React.FC<PVRImageProps> = ({
     const headerSize = 16; // Size of the header structure
 
     // Parse palette data
-    const palette: number[] = [];
+    const palette: number[][] = [];
     let offset = headerSize;
 
-    // Determine bytes per color entry based on format
-    let bytesPerEntry = 2; // Default to 16-bit (2 bytes)
-    if (format === 0x06) {
-      // ARGB8888
-      bytesPerEntry = 4; // 32-bit (4 bytes)
-    }
-
     for (let i = 0; i < entryCount; i++) {
-      if (bytesPerEntry === 2) {
-        // Read 16-bit color
-        palette.push(dataView.getUint16(offset, true));
-      } else {
-        // Read 32-bit color
-        palette.push(dataView.getUint32(offset, true));
-      }
-      offset += bytesPerEntry;
+      // Read 16-bit color
+      const ushort = dataView.getUint16(offset, true);
+      palette.push(colorToRGBA(ushort, format));
+      offset += 2;
     }
 
     return {
@@ -153,6 +153,59 @@ const PVRImage: React.FC<PVRImageProps> = ({
       palette,
       entryCount,
     };
+  };
+
+  /**
+   * Convert a color value to RGBA components
+   * @param colorValue The color value
+   * @param format The color format (from PVR_FORMATS)
+   * @returns Array with [ r, g, b, a ] values (0-255)
+   */
+  const colorToRGBA = (colorValue: number, format: number) => {
+    let r = 0,
+      g = 0,
+      b = 0,
+      a = 255;
+
+    switch (format) {
+      case PVR_FORMATS.ARGB1555:
+        a = colorValue & 0x8000 ? 255 : 0;
+        r = (((colorValue >> 10) & 0x1f) * 255) / 31;
+        g = (((colorValue >> 5) & 0x1f) * 255) / 31;
+        b = ((colorValue & 0x1f) * 255) / 31;
+        break;
+
+      case PVR_FORMATS.RGB565:
+        r = (((colorValue >> 11) & 0x1f) * 255) / 31;
+        g = (((colorValue >> 5) & 0x3f) * 255) / 63;
+        b = ((colorValue & 0x1f) * 255) / 31;
+        break;
+
+      case PVR_FORMATS.ARGB4444:
+        a = (((colorValue >> 12) & 0xf) * 255) / 15;
+        r = (((colorValue >> 8) & 0xf) * 255) / 15;
+        g = (((colorValue >> 4) & 0xf) * 255) / 15;
+        b = ((colorValue & 0xf) * 255) / 15;
+        break;
+
+      case PVR_FORMATS.RGB555:
+        r = (((colorValue >> 10) & 0x1f) * 255) / 31;
+        g = (((colorValue >> 5) & 0x1f) * 255) / 31;
+        b = ((colorValue & 0x1f) * 255) / 31;
+        break;
+
+      case PVR_FORMATS.ARGB8888:
+        a = (colorValue >> 24) & 0xff;
+        r = (colorValue >> 16) & 0xff;
+        g = (colorValue >> 8) & 0xff;
+        b = colorValue & 0xff;
+        break;
+
+      default:
+        console.warn("Unknown color format:", format);
+    }
+
+    return [Math.round(r), Math.round(g), Math.round(b), Math.round(a)];
   };
 
   // Load and draw the PVR texture

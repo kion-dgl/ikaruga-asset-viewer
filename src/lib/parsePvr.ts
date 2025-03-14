@@ -44,7 +44,7 @@ export interface PVRHeader {
  */
 export const parsePvr = async (
   buffer: ArrayBuffer,
-  externalPalette?: number[],
+  externalPalette?: number[][],
 ): Promise<{ header: PVRHeader; imageData: ImageData }> => {
   const view = new DataView(buffer);
   let offset = 0;
@@ -142,21 +142,11 @@ export const parsePvr = async (
       decodeVector(view, offset, header, imageData);
       break;
     case PVR_DATA_FORMATS.PALETTIZE4:
-    case PVR_DATA_FORMATS.PALETTIZE4_MM:
     case PVR_DATA_FORMATS.PALETTIZE8:
-    case PVR_DATA_FORMATS.PALETTIZE8_MM:
       if (externalPalette) {
-        decodePaletteWithExternalData(
-          view,
-          offset,
-          header,
-          imageData,
-          externalPalette,
-        );
         header.usedExternalPalette = true;
-      } else {
-        decodePalette(view, offset, header, imageData);
       }
+      decodePalette(view, offset, header, imageData, externalPalette || []);
       break;
     default:
       throw new Error("Data format not supported: " + dataFormat.toString(16));
@@ -294,77 +284,27 @@ const getTwiddledIndex = (
   return index;
 };
 
-/**
- * Convert a color value to RGBA components
- * @param colorValue The color value
- * @param format The color format (from PVR_FORMATS)
- * @returns Object with r, g, b, a values (0-255)
- */
-const colorToRGBA = (colorValue: number, format: number) => {
-  let r = 0,
-    g = 0,
-    b = 0,
-    a = 255;
-
-  switch (format) {
-    case PVR_FORMATS.ARGB1555:
-      a = colorValue & 0x8000 ? 255 : 0;
-      r = (((colorValue >> 10) & 0x1f) * 255) / 31;
-      g = (((colorValue >> 5) & 0x1f) * 255) / 31;
-      b = ((colorValue & 0x1f) * 255) / 31;
-      break;
-
-    case PVR_FORMATS.RGB565:
-      r = (((colorValue >> 11) & 0x1f) * 255) / 31;
-      g = (((colorValue >> 5) & 0x3f) * 255) / 63;
-      b = ((colorValue & 0x1f) * 255) / 31;
-      break;
-
-    case PVR_FORMATS.ARGB4444:
-      a = (((colorValue >> 12) & 0xf) * 255) / 15;
-      r = (((colorValue >> 8) & 0xf) * 255) / 15;
-      g = (((colorValue >> 4) & 0xf) * 255) / 15;
-      b = ((colorValue & 0xf) * 255) / 15;
-      break;
-
-    case PVR_FORMATS.RGB555:
-      r = (((colorValue >> 10) & 0x1f) * 255) / 31;
-      g = (((colorValue >> 5) & 0x1f) * 255) / 31;
-      b = ((colorValue & 0x1f) * 255) / 31;
-      break;
-
-    case PVR_FORMATS.ARGB8888:
-      a = (colorValue >> 24) & 0xff;
-      r = (colorValue >> 16) & 0xff;
-      g = (colorValue >> 8) & 0xff;
-      b = colorValue & 0xff;
-      break;
-
-    default:
-      console.warn("Unknown color format:", format);
-  }
-
-  return {
-    r: Math.round(r),
-    g: Math.round(g),
-    b: Math.round(b),
-    a: Math.round(a),
-  };
-};
-
 const decodePalette = (
   view: DataView,
   offset: number,
   header: PVRHeader,
   imageData: ImageData,
+  externalPalette: number[][],
 ) => {
   const { width, height } = header;
   const pal: number[][] = [];
-  let n = 0;
-  for (let i = 0; i < 16; i++) {
-    pal.push([n, n, n, 255]);
-    n += 16;
-    n > 255 ? (n = 255) : n;
+
+  if (header.dataFormat === PVR_DATA_FORMATS.PALETTIZE8) {
+    for (let i = 0; i < 255; i++) {
+      pal.push([i, i, i, 255]);
+    }
+  } else {
+    let n = 0;
+    for (let i = 0; i < 16; i++) {
+      pal.push([n, n, n, 255]);
+      n += 16;
+      n > 255 ? (n = 255) : n;
+    }
   }
 
   if (width > height) {
@@ -376,15 +316,23 @@ const decodePalette = (
 
     for (offset; offset < view.byteLength; offset++) {
       const byte = view.getUint8(offset);
-      bodyData.push(byte & 0x0f);
-      bodyData.push(byte & 0x0f);
+      if (header.dataFormat === PVR_DATA_FORMATS.PALETTIZE8) {
+        console.log(header);
+        console.log("palette 8");
+        bodyData.push(byte);
+      } else {
+        bodyData.push(byte & 0x0f);
+        bodyData.push(byte >> 4);
+      }
     }
 
-    n = 0;
+    let n = 0;
     for (let c = 0; c < count; c++) {
       for (let i = 0; i < bodyData.length / count; i++) {
         const palIndex = bodyData[n++];
-        const p = pal[palIndex];
+        const p = header.usedExternalPalette
+          ? externalPalette[palIndex]
+          : pal[palIndex];
         const { x, y } = lookUpTable[i];
         imageData.data[y * width * 4 + x * 4 + width * c * 2 + 0] = p[0];
         imageData.data[y * width * 4 + x * 4 + width * c * 2 + 1] = p[1];
@@ -400,16 +348,24 @@ const decodePalette = (
 
     for (offset; offset < view.byteLength; offset++) {
       const byte = view.getUint8(offset);
-      bodyData.push(byte & 0x0f);
-      bodyData.push(byte & 0x0f);
+      if (header.dataFormat === PVR_DATA_FORMATS.PALETTIZE8) {
+        console.log(header);
+        console.log("palette 8");
+        bodyData.push(byte);
+      } else {
+        bodyData.push(byte & 0x0f);
+        bodyData.push(byte >> 4);
+      }
     }
 
-    n = 0;
+    let n = 0;
     for (let c = 0; c < count; c++) {
       const blockStart = width * width * 4 * c;
       for (let i = 0; i < bodyData.length / count; i++) {
         const palIndex = bodyData[n++];
-        const p = pal[palIndex];
+        const p = header.usedExternalPalette
+          ? externalPalette[palIndex]
+          : pal[palIndex];
         const { x, y } = lookUpTable[i];
         imageData.data[blockStart + y * width * 4 + x * 4 + 0] = p[0];
         imageData.data[blockStart + y * width * 4 + x * 4 + 1] = p[1];
@@ -423,100 +379,27 @@ const decodePalette = (
 
     for (offset; offset < view.byteLength; offset++) {
       const byte = view.getUint8(offset);
-      bodyData.push(byte & 0x0f);
-      bodyData.push(byte & 0x0f);
+      if (header.dataFormat === PVR_DATA_FORMATS.PALETTIZE8) {
+        console.log(header);
+        console.log("palette 8");
+        bodyData.push(byte);
+      } else {
+        bodyData.push(byte & 0x0f);
+        bodyData.push(byte >> 4);
+      }
     }
 
     for (let i = 0; i < bodyData.length; i++) {
       const palIndex = bodyData[i];
-      const p = pal[palIndex];
+      const p = header.usedExternalPalette
+        ? externalPalette[palIndex]
+        : pal[palIndex];
       const { x, y } = lookUpTable[i];
       imageData.data[y * width * 4 + x * 4 + 0] = p[0];
       imageData.data[y * width * 4 + x * 4 + 1] = p[1];
       imageData.data[y * width * 4 + x * 4 + 2] = p[2];
       imageData.data[y * width * 4 + x * 4 + 3] = p[3];
     }
-  }
-};
-
-/**
- * Decode palette-based texture using external palette data
- */
-const decodePaletteWithExternalData = (
-  view: DataView,
-  offset: number,
-  header: PVRHeader,
-  imageData: ImageData,
-  externalPalette: number[],
-) => {
-  const { width, height, colorFormat, dataFormat } = header;
-
-  // Determine if we're working with a 4-bit or 8-bit palette
-  const is4BitPalette =
-    dataFormat === PVR_DATA_FORMATS.PALETTIZE4 ||
-    dataFormat === PVR_DATA_FORMATS.PALETTIZE4_MM;
-
-  // Create lookup table for detwiddling
-  const lookUpTable = createDetwiddlingLookupTable(
-    is4BitPalette ? Math.min(width, height) : width,
-    is4BitPalette ? Math.min(width, height) : height,
-  );
-
-  // Extract index data from the PVR
-  const bodyData: number[] = [];
-
-  if (is4BitPalette) {
-    // 4-bit indices (2 indices per byte)
-    for (offset; offset < view.byteLength; offset++) {
-      const byte = view.getUint8(offset);
-      bodyData.push((byte >> 4) & 0x0f); // High nibble
-      bodyData.push(byte & 0x0f); // Low nibble
-    }
-  } else {
-    // 8-bit indices (1 index per byte)
-    for (offset; offset < view.byteLength; offset++) {
-      bodyData.push(view.getUint8(offset));
-    }
-  }
-
-  // Apply the palette and untwiddle the data
-  const isPalettizeMMFormat =
-    dataFormat === PVR_DATA_FORMATS.PALETTIZE4_MM ||
-    dataFormat === PVR_DATA_FORMATS.PALETTIZE8_MM;
-
-  // For mipmapped textures, we need to find the correct mipmap level
-  if (isPalettizeMMFormat) {
-    // Skip mipmap data for now - use the highest resolution mipmap
-    console.log(
-      "Mipmapped palette texture detected - using highest resolution level",
-    );
-  }
-
-  // Process the texture data with the external palette
-  for (let i = 0; i < bodyData.length && i < width * height; i++) {
-    const palIndex = bodyData[i];
-
-    // Skip if the index is out of bounds
-    if (palIndex >= externalPalette.length) {
-      console.warn(
-        `Palette index ${palIndex} out of bounds (max: ${externalPalette.length - 1})`,
-      );
-      continue;
-    }
-
-    // Get the color from the external palette
-    const colorValue = externalPalette[palIndex];
-    const { r, g, b, a } = colorToRGBA(colorValue, colorFormat);
-
-    // Untwiddle coordinates
-    const { x, y } = lookUpTable[i];
-
-    // Set pixel data
-    const pixelOffset = (y * width + x) * 4;
-    imageData.data[pixelOffset + 0] = r;
-    imageData.data[pixelOffset + 1] = g;
-    imageData.data[pixelOffset + 2] = b;
-    imageData.data[pixelOffset + 3] = a;
   }
 };
 
