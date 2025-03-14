@@ -86,6 +86,8 @@ export const parsePvr = async (
   offset += 4;
 
   // Skip data size
+  const dataSize = view.getUint32(offset, true);
+  console.log(`PVR data size: ${dataSize} bytes`);
   offset += 4;
 
   // Read texture header
@@ -148,11 +150,226 @@ export const parsePvr = async (
       }
       decodePalette(view, offset, header, imageData, externalPalette || []);
       break;
+    case PVR_DATA_FORMATS.TWIDDLED_RECTANGLE:
+      decodeRectangleTwiddled(view, offset, header, imageData);
+      break;
     default:
       throw new Error("Data format not supported: " + dataFormat.toString(16));
   }
 
   return { header, imageData };
+};
+
+// Function to decode TWIDDLED_RECTANGLE format (0x0D)
+const decodeRectangleTwiddled = (
+  view: DataView,
+  offset: number,
+  header: PVRHeader,
+  imageData: ImageData,
+) => {
+  const { width, height, colorFormat } = header;
+
+  console.log(
+    `Decoding TWIDDLED_RECTANGLE texture: ${width}x${height}, format: 0x${colorFormat.toString(16)}`,
+  );
+
+  // Determine if the texture is wider than it is tall, or vice versa
+  if (width > height) {
+    // Horizontal rectangle (wider than tall)
+    const squareSize = height; // The size of each square block
+    const blockCount = width / squareSize; // Number of square blocks
+
+    console.log(
+      `Horizontal rectangle: ${blockCount} blocks of ${squareSize}x${squareSize}`,
+    );
+
+    // Create lookup table for the square portion
+    const lookUpTable = createDetwiddlingLookupTable(squareSize, squareSize);
+
+    // Process each block
+    for (let block = 0; block < blockCount; block++) {
+      // Calculate block position (x-offset)
+      const blockOffset = block * squareSize;
+
+      // Process all pixels in this block
+      for (let i = 0; i < squareSize * squareSize; i++) {
+        // Get the de-twiddled coordinates within this square block
+        const { x, y } = lookUpTable[i];
+
+        // Read the pixel color (16-bit)
+        const color = view.getUint16(offset, true);
+        offset += 2;
+
+        // Calculate the final position in the output image
+        const pixelIndex = (y * width + (x + blockOffset)) * 4;
+
+        // Convert the color based on format and write to the image data
+        switch (colorFormat) {
+          case PVR_FORMATS.ARGB1555:
+            imageData.data[pixelIndex + 3] = color & 0x8000 ? 255 : 0;
+            imageData.data[pixelIndex + 0] = (color & 0x7c00) >> 7;
+            imageData.data[pixelIndex + 1] = (color & 0x03e0) >> 2;
+            imageData.data[pixelIndex + 2] = (color & 0x001f) << 3;
+            break;
+          case PVR_FORMATS.RGB565:
+            imageData.data[pixelIndex + 0] = (color >> 8) & (0x1f << 3);
+            imageData.data[pixelIndex + 1] = (color >> 3) & (0x3f << 2);
+            imageData.data[pixelIndex + 2] = (color << 3) & (0x1f << 3);
+            imageData.data[pixelIndex + 3] = 255;
+            break;
+          case PVR_FORMATS.ARGB4444:
+            imageData.data[pixelIndex + 3] = ((color >> 12) & 0xf) * 17; // Scale 0-15 to 0-255
+            imageData.data[pixelIndex + 0] = ((color >> 8) & 0xf) * 17;
+            imageData.data[pixelIndex + 1] = ((color >> 4) & 0xf) * 17;
+            imageData.data[pixelIndex + 2] = (color & 0xf) * 17;
+            break;
+          case PVR_FORMATS.RGB555:
+            imageData.data[pixelIndex + 0] = (color & 0x7c00) >> 7;
+            imageData.data[pixelIndex + 1] = (color & 0x03e0) >> 2;
+            imageData.data[pixelIndex + 2] = (color & 0x001f) << 3;
+            imageData.data[pixelIndex + 3] = 255;
+            break;
+          default:
+            console.warn(
+              `Unsupported color format in TWIDDLED_RECTANGLE: 0x${colorFormat.toString(16)}`,
+            );
+            // Default to grayscale
+            const gray = i % 256;
+            imageData.data[pixelIndex + 0] = gray;
+            imageData.data[pixelIndex + 1] = gray;
+            imageData.data[pixelIndex + 2] = gray;
+            imageData.data[pixelIndex + 3] = 255;
+        }
+      }
+    }
+  } else if (height > width) {
+    // Vertical rectangle (taller than wide)
+    const squareSize = width; // The size of each square block
+    const blockCount = height / squareSize; // Number of square blocks
+
+    console.log(
+      `Vertical rectangle: ${blockCount} blocks of ${squareSize}x${squareSize}`,
+    );
+
+    // Create lookup table for the square portion
+    const lookUpTable = createDetwiddlingLookupTable(squareSize, squareSize);
+
+    // Process each block
+    for (let block = 0; block < blockCount; block++) {
+      // Calculate block position (y-offset)
+      const blockOffset = block * squareSize;
+
+      // Process all pixels in this block
+      for (let i = 0; i < squareSize * squareSize; i++) {
+        // Get the de-twiddled coordinates within this square block
+        const { x, y } = lookUpTable[i];
+
+        // Read the pixel color (16-bit)
+        const color = view.getUint16(offset, true);
+        offset += 2;
+
+        // Calculate the final position in the output image
+        const pixelIndex = ((y + blockOffset) * width + x) * 4;
+
+        // Convert the color based on format and write to the image data
+        switch (colorFormat) {
+          case PVR_FORMATS.ARGB1555:
+            imageData.data[pixelIndex + 3] = color & 0x8000 ? 255 : 0;
+            imageData.data[pixelIndex + 0] = (color & 0x7c00) >> 7;
+            imageData.data[pixelIndex + 1] = (color & 0x03e0) >> 2;
+            imageData.data[pixelIndex + 2] = (color & 0x001f) << 3;
+            break;
+          case PVR_FORMATS.RGB565:
+            imageData.data[pixelIndex + 0] = (color >> 8) & (0x1f << 3);
+            imageData.data[pixelIndex + 1] = (color >> 3) & (0x3f << 2);
+            imageData.data[pixelIndex + 2] = (color << 3) & (0x1f << 3);
+            imageData.data[pixelIndex + 3] = 255;
+            break;
+          case PVR_FORMATS.ARGB4444:
+            imageData.data[pixelIndex + 3] = ((color >> 12) & 0xf) * 17; // Scale 0-15 to 0-255
+            imageData.data[pixelIndex + 0] = ((color >> 8) & 0xf) * 17;
+            imageData.data[pixelIndex + 1] = ((color >> 4) & 0xf) * 17;
+            imageData.data[pixelIndex + 2] = (color & 0xf) * 17;
+            break;
+          case PVR_FORMATS.RGB555:
+            imageData.data[pixelIndex + 0] = (color & 0x7c00) >> 7;
+            imageData.data[pixelIndex + 1] = (color & 0x03e0) >> 2;
+            imageData.data[pixelIndex + 2] = (color & 0x001f) << 3;
+            imageData.data[pixelIndex + 3] = 255;
+            break;
+          default:
+            console.warn(
+              `Unsupported color format in TWIDDLED_RECTANGLE: 0x${colorFormat.toString(16)}`,
+            );
+            // Default to grayscale
+            const gray = i % 256;
+            imageData.data[pixelIndex + 0] = gray;
+            imageData.data[pixelIndex + 1] = gray;
+            imageData.data[pixelIndex + 2] = gray;
+            imageData.data[pixelIndex + 3] = 255;
+        }
+      }
+    }
+  } else {
+    // Square texture - shouldn't happen with TWIDDLED_RECTANGLE but handle anyway
+    console.warn(
+      `Square texture (${width}x${height}) with TWIDDLED_RECTANGLE format?`,
+    );
+
+    // Create lookup table
+    const lookUpTable = createDetwiddlingLookupTable(width, height);
+
+    // Process all pixels
+    for (let i = 0; i < width * height; i++) {
+      // Get the de-twiddled coordinates
+      const { x, y } = lookUpTable[i];
+
+      // Read the pixel color (16-bit)
+      const color = view.getUint16(offset, true);
+      offset += 2;
+
+      // Calculate the final position in the output image
+      const pixelIndex = (y * width + x) * 4;
+
+      // Convert the color based on format and write to the image data
+      switch (colorFormat) {
+        case PVR_FORMATS.ARGB1555:
+          imageData.data[pixelIndex + 3] = color & 0x8000 ? 255 : 0;
+          imageData.data[pixelIndex + 0] = (color & 0x7c00) >> 7;
+          imageData.data[pixelIndex + 1] = (color & 0x03e0) >> 2;
+          imageData.data[pixelIndex + 2] = (color & 0x001f) << 3;
+          break;
+        case PVR_FORMATS.RGB565:
+          imageData.data[pixelIndex + 0] = (color >> 8) & (0x1f << 3);
+          imageData.data[pixelIndex + 1] = (color >> 3) & (0x3f << 2);
+          imageData.data[pixelIndex + 2] = (color << 3) & (0x1f << 3);
+          imageData.data[pixelIndex + 3] = 255;
+          break;
+        case PVR_FORMATS.ARGB4444:
+          imageData.data[pixelIndex + 3] = ((color >> 12) & 0xf) * 17; // Scale 0-15 to 0-255
+          imageData.data[pixelIndex + 0] = ((color >> 8) & 0xf) * 17;
+          imageData.data[pixelIndex + 1] = ((color >> 4) & 0xf) * 17;
+          imageData.data[pixelIndex + 2] = (color & 0xf) * 17;
+          break;
+        case PVR_FORMATS.RGB555:
+          imageData.data[pixelIndex + 0] = (color & 0x7c00) >> 7;
+          imageData.data[pixelIndex + 1] = (color & 0x03e0) >> 2;
+          imageData.data[pixelIndex + 2] = (color & 0x001f) << 3;
+          imageData.data[pixelIndex + 3] = 255;
+          break;
+        default:
+          console.warn(
+            `Unsupported color format in TWIDDLED_RECTANGLE: 0x${colorFormat.toString(16)}`,
+          );
+          // Default to grayscale
+          const gray = i % 256;
+          imageData.data[pixelIndex + 0] = gray;
+          imageData.data[pixelIndex + 1] = gray;
+          imageData.data[pixelIndex + 2] = gray;
+          imageData.data[pixelIndex + 3] = 255;
+      }
+    }
+  }
 };
 
 const decodeRectable = (
@@ -205,7 +422,7 @@ const createDetwiddlingLookupTable = (
 ): { x: number; y: number }[] => {
   // Validate input dimensions (must be powers of 2)
   if (!isPowerOfTwo(width) || !isPowerOfTwo(height)) {
-    throw new Error("Width and height must be powers of 2");
+    throw new Error(`Width and height must be powers of 2: ${width}x${height}`);
   }
 
   const result: { x: number; y: number }[] = new Array(width * height);

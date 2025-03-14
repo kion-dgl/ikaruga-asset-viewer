@@ -11,6 +11,7 @@ interface PVMTexture {
   data: ArrayBuffer;
   header?: PVRHeader;
   imageData?: ImageData;
+  offset?: number; // Offset in the file where PVRT header starts
 }
 
 interface PVMHeader {
@@ -129,7 +130,15 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
       for (let i = 0; i < textureCount; i++) {
         // Find PVRT magic marker
         let foundPVRT = false;
-        while (!foundPVRT && offset < dataView.byteLength - 4) {
+        let searchStartOffset = offset;
+        let attempts = 0;
+        const maxAttempts = 5000; // Prevent infinite loops
+
+        while (
+          !foundPVRT &&
+          offset < dataView.byteLength - 4 &&
+          attempts < maxAttempts
+        ) {
           const magic = String.fromCharCode(
             dataView.getUint8(offset),
             dataView.getUint8(offset + 1),
@@ -139,9 +148,23 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
 
           if (magic === "PVRT") {
             foundPVRT = true;
+            // Check if we had to search far - might indicate parsing problem
+            if (attempts > 10) {
+              console.warn(
+                `Found PVRT after ${attempts} attempts, started at 0x${searchStartOffset.toString(16)}, found at 0x${offset.toString(16)}`,
+              );
+            }
           } else {
             offset += 1;
+            attempts++;
           }
+        }
+
+        // Guard against not finding PVRT
+        if (attempts >= maxAttempts) {
+          console.error(
+            `Failed to find PVRT after ${maxAttempts} attempts starting from 0x${searchStartOffset.toString(16)}`,
+          );
         }
 
         if (!foundPVRT) {
@@ -150,6 +173,9 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
 
         // Record start of this texture for extracting its buffer
         const textureStart = offset;
+
+        // Store the offset in the file (in hex) for debugging
+        textureEntries[i].offset = textureStart;
 
         // Read PVRT data size
         offset += 4; // Skip PVRT
@@ -160,10 +186,21 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
         const totalSize = 8 + pvrDataSize; // PVRT (4) + size (4) + data
 
         // Extract this texture's data
-        const textureData = arrayBuffer.slice(
-          textureStart,
+        // Make sure we don't go past the end of the buffer
+        const endOffset = Math.min(
           textureStart + totalSize,
+          arrayBuffer.byteLength,
         );
+        const textureData = arrayBuffer.slice(textureStart, endOffset);
+
+        // Validate that we have at least a minimum valid size for a PVR texture (header + some data)
+        const minValidSize = 16; // Header size
+        if (textureData.byteLength < minValidSize) {
+          console.warn(
+            `Texture ${i} (${textureEntries[i].name || "unnamed"}) has suspiciously small data: ${textureData.byteLength} bytes`,
+          );
+        }
+
         textureEntries[i].data = textureData;
 
         // Move to next texture
@@ -174,6 +211,20 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
       const processedTextures = await Promise.all(
         textureEntries.map(async (texture) => {
           try {
+            // Improved error handling and debugging
+            console.log(
+              `Parsing texture: ${texture.name || texture.id}, offset: 0x${texture.offset?.toString(16).padStart(8, "0")}`,
+            );
+
+            // Check that data isn't empty
+            if (texture.data.byteLength === 0) {
+              console.error(
+                `Empty data buffer for texture ${texture.name || texture.id}`,
+              );
+              return texture;
+            }
+
+            // Parse texture data
             const { header, imageData } = await parsePvr(texture.data);
             return {
               ...texture,
@@ -182,7 +233,7 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
             };
           } catch (err) {
             console.error(
-              `Error parsing texture ${texture.name || texture.id}:`,
+              `Error parsing texture ${texture.name || texture.id} at offset 0x${texture.offset?.toString(16).padStart(8, "0")}:`,
               err,
             );
             return texture;
@@ -295,6 +346,42 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
     textures.forEach((texture, index) => {
       if (texture.imageData && canvasRefs.current[index]) {
         renderTexture(canvasRefs.current[index], texture.imageData);
+      } else if (canvasRefs.current[index]) {
+        // Draw a placeholder for textures that couldn't be parsed
+        const canvas = canvasRefs.current[index];
+        const ctx = canvas.getContext("2d");
+        if (ctx) {
+          // Set default dimensions
+          canvas.width = 64;
+          canvas.height = 64;
+
+          // Draw error pattern
+          ctx.fillStyle = "#f0f0f0";
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+          ctx.strokeStyle = "#ff0000";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(0, 0);
+          ctx.lineTo(canvas.width, canvas.height);
+          ctx.moveTo(canvas.width, 0);
+          ctx.lineTo(0, canvas.height);
+          ctx.stroke();
+
+          // Add text
+          ctx.fillStyle = "#000000";
+          ctx.font = "10px sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText("Parse Error", canvas.width / 2, canvas.height / 2);
+
+          if (texture.offset !== undefined) {
+            ctx.fillText(
+              `0x${texture.offset.toString(16)}`,
+              canvas.width / 2,
+              canvas.height / 2 + 12,
+            );
+          }
+        }
       }
     });
   }, [textures]);
@@ -327,6 +414,7 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
               <th className="p-2 border">Preview</th>
               <th className="p-2 border">ID</th>
               <th className="p-2 border">Name</th>
+              <th className="p-2 border">Offset</th>
               <th className="p-2 border">Dimensions</th>
               <th className="p-2 border">GBIX</th>
               <th className="p-2 border">Data Format</th>
@@ -340,7 +428,9 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
                 <td className="p-2 border">
                   <div className="flex justify-center">
                     <canvas
-                      ref={(el) => (canvasRefs.current[index] = el)}
+                      ref={(el: HTMLCanvasElement | null) => {
+                        canvasRefs.current[index] = el;
+                      }}
                       className="border border-gray-200"
                       style={{
                         maxWidth: "128px",
@@ -355,6 +445,11 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
                 </td>
                 <td className="p-2 border">
                   {texture.name || "Not specified"}
+                </td>
+                <td className="p-2 border">
+                  {texture.offset !== undefined
+                    ? `0x${texture.offset.toString(16).padStart(8, "0")}`
+                    : "Unknown"}
                 </td>
                 <td className="p-2 border">
                   {texture.header
