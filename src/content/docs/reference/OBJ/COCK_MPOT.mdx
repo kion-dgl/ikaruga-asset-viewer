@@ -1,11 +1,27 @@
 ---
 title: COCK_MPOT
-description: A sprite or something
+description: Texture used in Ikaruga
 ---
 
 import PVMViewer from '@components/PVMViewer';
+import NJViewer from "@components/NjViewer";
+
+# COCK_MPOT Texture
 
 <PVMViewer
   client:load
   filePath="OBJ/COCK_MPOT.PVM"
 />
+
+
+## 3D Model
+
+This texture is used by the following 3D model:
+
+<NJViewer 
+  modelPath="OBJ/COCK_MPOT.NJ" 
+  texturePaths={["OBJ/COCK_MPOT.PVM"]}
+  width={600}
+  height={400}
+/>
+

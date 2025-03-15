@@ -1,11 +1,27 @@
 ---
 title: GUN_JUNK
-description: A sprite or something
+description: Texture used in Ikaruga
 ---
 
 import PVMViewer from '@components/PVMViewer';
+import NJViewer from "@components/NjViewer";
+
+# GUN_JUNK Texture
 
 <PVMViewer
   client:load
   filePath="OBJ/GUN_JUNK.PVM"
 />
+
+
+## 3D Model
+
+This texture is used by the following 3D model:
+
+<NJViewer 
+  modelPath="OBJ/GUN_JUNK.NJ" 
+  texturePaths={["OBJ/GUN_JUNK.PVM"]}
+  width={600}
+  height={400}
+/>
+

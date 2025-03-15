@@ -12,11 +12,14 @@
   "dependencies": {
     "@astrojs/react": "^4.2.1",
     "@astrojs/starlight": "^0.32.2",
+    "@react-three/drei": "^10.0.4",
+    "@react-three/fiber": "^9.1.0",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "astro": "^5.1.5",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "sharp": "^0.32.5"
+    "sharp": "^0.32.5",
+    "three": "^0.174.0"
   }
 }
