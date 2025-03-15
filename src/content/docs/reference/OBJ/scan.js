@@ -43,25 +43,25 @@ description: Texture used in Ikaruga
 import PVMViewer from '@components/PVMViewer';
 ${hasNJFile ? 'import NJViewer from "@components/NjViewer";' : ''}
 
-# ${baseName} Texture
-
-<PVMViewer
-  client:load
-  filePath="OBJ/${file}"
-/>
+# ${baseName}
 
 ${hasNJFile ? `
 ## 3D Model
 
-This texture is used by the following 3D model:
-
 <NJViewer 
+  client:load
   modelPath="OBJ/${baseName}.NJ" 
   texturePaths={["OBJ/${file}"]}
   width={600}
   height={400}
 />
-` : ''}
+
+## Texture` : '## Texture'}
+
+<PVMViewer
+  client:load
+  filePath="OBJ/${file}"
+/>
 `,
     );
     console.log(`Created/Updated ${mdxPath}`);
@@ -87,9 +87,12 @@ description: 3D model used in Ikaruga
 
 import NJViewer from '@components/NjViewer';
 
-# ${baseName} 3D Model
+# ${baseName}
+
+## 3D Model
 
 <NJViewer 
+  client:load
   modelPath="OBJ/${file}"
   width={600}
   height={400}

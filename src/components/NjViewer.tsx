@@ -98,6 +98,7 @@ const NJViewer: React.FC<NJViewerProps> = ({
       setError(null);
       
       try {
+        console.log(`Loading model: ${modelPath}`);
         // Fetch the NJ file
         const response = await fetch(`/iso/${modelPath}`);
         if (!response.ok) {
@@ -114,6 +115,7 @@ const NJViewer: React.FC<NJViewerProps> = ({
           dataView.getUint8(2),
           dataView.getUint8(3)
         );
+        console.log(`Model magic: ${magic}`);
         
         // Basic header info for display
         const header: NJHeader = {
@@ -124,14 +126,15 @@ const NJViewer: React.FC<NJViewerProps> = ({
           polygons: 0
         };
         
-        // Parse the NJ model (this is a simplified version)
-        // A real implementation would need to properly parse the Ninja format
-        // as shown in the example code provided in the issue
+        // For now, always create a placeholder model instead of trying to parse
+        // the actual NJ data which will require a more complete implementation
         const parsedModel = parseNinjaModelData(dataView, textures);
         
         header.bones = parsedModel.bones.length;
         header.vertices = parsedModel.vertices;
         header.polygons = parsedModel.polygons;
+        
+        console.log(`Model loaded with ${header.vertices} vertices and ${header.bones} bones`);
         
         setMetaData(header);
         setMesh(parsedModel);
@@ -289,12 +292,49 @@ const NJViewer: React.FC<NJViewerProps> = ({
     );
   };
 
-  if (loading) {
-    return <div className="nj-viewer-loading">Loading 3D model...</div>;
-  }
-
+  // Create a placeholder mesh even while loading - this avoids the "Loading..." message
+  // that might not render correctly due to client/server hydration issues
+  const placeholderMesh = React.useMemo(() => {
+    if (!loading && !error && mesh) return null;
+    
+    // Create a minimal placeholder
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    const material = new THREE.MeshBasicMaterial({ color: 0x888888, wireframe: true });
+    
+    const bones: THREE.Bone[] = [];
+    const rootBone = new THREE.Bone();
+    rootBone.position.set(0, 0, 0);
+    bones.push(rootBone);
+    
+    return {
+      id: 0,
+      bones,
+      skeleton: new THREE.Skeleton(bones),
+      vertices: 8,
+      polygons: 12,
+      geometry,
+      materials: [material]
+    } as NJMesh;
+  }, [loading, error, mesh]);
+  
   if (error) {
-    return <div className="nj-viewer-error">Error: {error}</div>;
+    console.error(`Error in NJViewer: ${error}`);
+    return (
+      <div className="nj-viewer-canvas border border-gray-300 rounded-md overflow-hidden" style={{ width, height }}>
+        <Canvas camera={{ position: [0, 2, 5], fov: 50 }}>
+          <ambientLight intensity={0.5} />
+          <pointLight position={[10, 10, 10]} intensity={1} />
+          <Model mesh={placeholderMesh!} />
+          <OrbitControls />
+          <gridHelper args={[10, 10]} />
+          <axesHelper args={[5]} />
+          <Stats />
+        </Canvas>
+        <div className="error-overlay absolute top-0 left-0 w-full h-full flex items-center justify-center bg-red-500 bg-opacity-50 text-white font-bold p-4 text-center">
+          Error: {error}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -303,8 +343,33 @@ const NJViewer: React.FC<NJViewerProps> = ({
         3D Model: {modelPath.split("/").pop()}
       </h2>
       
+      {/* Always render the 3D viewer first */}
+      <div 
+        className="nj-viewer-canvas border border-gray-300 rounded-md overflow-hidden relative"
+        style={{ width, height }}
+      >
+        <Canvas camera={{ position: [0, 2, 5], fov: 50 }}>
+          <ambientLight intensity={0.5} />
+          <pointLight position={[10, 10, 10]} intensity={1} />
+          <Model mesh={mesh || placeholderMesh!} />
+          <OrbitControls />
+          <gridHelper args={[10, 10]} />
+          <axesHelper args={[5]} />
+          <Stats />
+        </Canvas>
+        
+        {/* Loading overlay */}
+        {loading && (
+          <div className="loading-overlay absolute top-0 left-0 w-full h-full flex items-center justify-center bg-black bg-opacity-30 text-white font-bold">
+            Loading...
+          </div>
+        )}
+      </div>
+      
+      {/* Metadata section */}
       {metaData && (
-        <div className="nj-metadata pb-4">
+        <div className="nj-metadata py-4">
+          <h3 className="text-lg font-semibold mb-2">Model Information</h3>
           <table className="w-full border-collapse mb-4 text-sm">
             <tbody>
               <tr className="border-b border-gray-200">
@@ -332,23 +397,7 @@ const NJViewer: React.FC<NJViewerProps> = ({
         </div>
       )}
       
-      <div 
-        className="nj-viewer-canvas border border-gray-300 rounded-md overflow-hidden"
-        style={{ width, height }}
-      >
-        {mesh && (
-          <Canvas camera={{ position: [0, 2, 5], fov: 50 }}>
-            <ambientLight intensity={0.5} />
-            <pointLight position={[10, 10, 10]} intensity={1} />
-            <Model mesh={mesh} />
-            <OrbitControls />
-            <gridHelper args={[10, 10]} />
-            <axesHelper args={[5]} />
-            <Stats />
-          </Canvas>
-        )}
-      </div>
-      
+      {/* Texture previews */}
       {textures.length > 0 && (
         <div className="texture-list mt-4">
           <h3 className="text-lg font-semibold mb-2">Textures</h3>

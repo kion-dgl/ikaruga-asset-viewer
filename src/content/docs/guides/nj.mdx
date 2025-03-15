@@ -26,6 +26,7 @@ Files typically have the `.nj` extension (model data) or may come with paired `.
 Below is an example of a 3D model viewer rendering a Ninja format model:
 
 <NJViewer 
+  client:load
   modelPath="OBJ/COCK.NJ" 
   texturePaths={["OBJ/COCK.PVM"]}
   width={600}
@@ -72,6 +73,7 @@ Material definitions include:
 Here are some other models you can explore:
 
 <NJViewer 
+  client:load
   modelPath="OBJ/FISH.NJ" 
   texturePaths={["OBJ/FISH.PVM"]}
   width={600}
@@ -79,6 +81,7 @@ Here are some other models you can explore:
 />
 
 <NJViewer 
+  client:load
   modelPath="OBJ/SHIP.NJ" 
   texturePaths={["OBJ/SHIP.PVM"]}
   width={600}
