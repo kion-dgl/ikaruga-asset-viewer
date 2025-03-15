@@ -72,7 +72,7 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
       const textureCount = dataView.getUint16(offset, true);
       offset += 2;
 
-      console.log(
+      
         `PVM contains ${textureCount} textures, flags: 0x${textureFlags.toString(16)}`,
       );
 
@@ -150,7 +150,7 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
             foundPVRT = true;
             // Check if we had to search far - might indicate parsing problem
             if (attempts > 10) {
-              console.warn(
+              
                 `Found PVRT after ${attempts} attempts, started at 0x${searchStartOffset.toString(16)}, found at 0x${offset.toString(16)}`,
               );
             }
@@ -162,7 +162,7 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
 
         // Guard against not finding PVRT
         if (attempts >= maxAttempts) {
-          console.error(
+          
             `Failed to find PVRT after ${maxAttempts} attempts starting from 0x${searchStartOffset.toString(16)}`,
           );
         }
@@ -196,7 +196,7 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
         // Validate that we have at least a minimum valid size for a PVR texture (header + some data)
         const minValidSize = 16; // Header size
         if (textureData.byteLength < minValidSize) {
-          console.warn(
+          
             `Texture ${i} (${textureEntries[i].name || "unnamed"}) has suspiciously small data: ${textureData.byteLength} bytes`,
           );
         }
@@ -212,13 +212,13 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
         textureEntries.map(async (texture) => {
           try {
             // Improved error handling and debugging
-            console.log(
+            
               `Parsing texture: ${texture.name || texture.id}, offset: 0x${texture.offset?.toString(16).padStart(8, "0")}`,
             );
 
             // Check that data isn't empty
             if (texture.data.byteLength === 0) {
-              console.error(
+              
                 `Empty data buffer for texture ${texture.name || texture.id}`,
               );
               return texture;
@@ -232,7 +232,7 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
               imageData,
             };
           } catch (err) {
-            console.error(
+            
               `Error parsing texture ${texture.name || texture.id} at offset 0x${texture.offset?.toString(16).padStart(8, "0")}:`,
               err,
             );
@@ -243,7 +243,7 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
 
       return processedTextures;
     } catch (err) {
-      console.error("Error parsing PVM file:", err);
+      
       throw err;
     }
   };
@@ -311,7 +311,7 @@ const DreamcastPVMViewer: React.FC<PVMViewerProps> = ({
         // Initialize canvas refs array with the correct length
         canvasRefs.current = Array(parsedTextures.length).fill(null);
       } catch (err) {
-        console.error("Error loading PVM file:", err);
+        
         setError(
           err instanceof Error ? err.message : "Failed to load PVM file",
         );
