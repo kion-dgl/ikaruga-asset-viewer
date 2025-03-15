@@ -1,22 +1,21 @@
 import { readdirSync, writeFileSync } from "fs";
 const dir = "/Users/kion/dev/ikaruga-asset-viewer/public/iso/STG03";
-const files = readdirSync(dir).filter((file) => file.endsWith(".PVR"));
+const files = readdirSync(dir).filter((file) => file.endsWith(".PVM"));
 console.log(files);
 
 files.forEach((file) => {
   writeFileSync(
-    file.replace("PVR", "mdx"),
+    file.replace("PVM", "mdx"),
     `---
-title: ${file.replace(".PVR", "")}
+title: ${file.replace(".PVM", "")} (pvm)
 description: A sprite or something
 ---
 
-import PVRImage from '@components/PVRImage';
+import PVMViewer from '@components/PVMViewer';
 
-
-<PVRImage
+<PVMViewer
   client:load
-  assetPath="STG03/${file}"
+  filePath="STG03/${file}"
 />
 `,
   );
