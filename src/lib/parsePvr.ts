@@ -166,11 +166,13 @@ const decodeRectangleTwiddled = (
   imageData: ImageData,
 ) => {
   const { width, height, colorFormat } = header;
+
   // Determine if the texture is wider than it is tall, or vice versa
   if (width > height) {
     // Horizontal rectangle (wider than tall)
     const squareSize = height; // The size of each square block
     const blockCount = width / squareSize; // Number of square blocks
+
     // Create lookup table for the square portion
     const lookUpTable = createDetwiddlingLookupTable(squareSize, squareSize);
 
@@ -218,9 +220,6 @@ const decodeRectangleTwiddled = (
             imageData.data[pixelIndex + 3] = 255;
             break;
           default:
-            
-              `Unsupported color format in TWIDDLED_RECTANGLE: 0x${colorFormat.toString(16)}`,
-            );
             // Default to grayscale
             const gray = i % 256;
             imageData.data[pixelIndex + 0] = gray;
@@ -282,9 +281,6 @@ const decodeRectangleTwiddled = (
             imageData.data[pixelIndex + 3] = 255;
             break;
           default:
-            
-              `Unsupported color format in TWIDDLED_RECTANGLE: 0x${colorFormat.toString(16)}`,
-            );
             // Default to grayscale
             const gray = i % 256;
             imageData.data[pixelIndex + 0] = gray;
@@ -339,9 +335,6 @@ const decodeRectangleTwiddled = (
           imageData.data[pixelIndex + 3] = 255;
           break;
         default:
-          
-            `Unsupported color format in TWIDDLED_RECTANGLE: 0x${colorFormat.toString(16)}`,
-          );
           // Default to grayscale
           const gray = i % 256;
           imageData.data[pixelIndex + 0] = gray;
@@ -493,6 +486,7 @@ const decodePalette = (
   const pal: number[][] = [];
 
   if (header.dataFormat === PVR_DATA_FORMATS.PALETTIZE8) {
+    // Use grayscale palette for 8-bit palettes
     for (let i = 0; i < 255; i++) {
       pal.push([i, i, i, 255]);
     }
@@ -506,7 +500,6 @@ const decodePalette = (
   }
 
   if (width > height) {
-    
     const count = width / height;
 
     const lookUpTable = createDetwiddlingLookupTable(height, height);
@@ -515,8 +508,6 @@ const decodePalette = (
     for (offset; offset < view.byteLength; offset++) {
       const byte = view.getUint8(offset);
       if (header.dataFormat === PVR_DATA_FORMATS.PALETTIZE8) {
-        
-        
         bodyData.push(byte);
       } else {
         bodyData.push(byte & 0x0f);
@@ -547,8 +538,6 @@ const decodePalette = (
     for (offset; offset < view.byteLength; offset++) {
       const byte = view.getUint8(offset);
       if (header.dataFormat === PVR_DATA_FORMATS.PALETTIZE8) {
-        
-        
         bodyData.push(byte);
       } else {
         bodyData.push(byte & 0x0f);
@@ -578,8 +567,6 @@ const decodePalette = (
     for (offset; offset < view.byteLength; offset++) {
       const byte = view.getUint8(offset);
       if (header.dataFormat === PVR_DATA_FORMATS.PALETTIZE8) {
-        
-        
         bodyData.push(byte);
       } else {
         bodyData.push(byte & 0x0f);
@@ -644,9 +631,7 @@ const drawImage = (
       const i = y * width + x;
 
       if (i >= image.length) {
-        
-          `Index ${i} out of bounds for image data (length: ${image.length})`,
-        );
+        // Index out of bounds for image data
         n += 4;
         continue;
       }
@@ -683,7 +668,7 @@ const drawImage = (
           imageData.data[n + 2] = image[i] & 0xff;
           break;
         default:
-          
+          // Unsupported color format, handled silently
       }
 
       n += 4;
