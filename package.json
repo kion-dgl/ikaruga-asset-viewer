@@ -17,7 +17,7 @@
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
     "astro": "^5.1.5",
-    "bytereader": "^0.1.0",
+    "bytereader": "^0.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "sharp": "^0.32.5",
