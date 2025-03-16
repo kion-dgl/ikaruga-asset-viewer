@@ -153,179 +153,355 @@ const NJViewer: React.FC<NJViewerProps> = ({
     parseNinjaModel();
   }, [modelPath, textures]);
 
-  // Placeholder function - this would need a full implementation based on the Ninja format
+  // Parse Ninja Model data 
   const parseNinjaModelData = (
     dataView: DataView,
     textures: THREE.Texture[],
   ): NJMesh => {
-    // This is a simplified placeholder implementation
-    // In a real implementation, you would:
-    // 1. Parse the model headers
-    // 2. Extract bone hierarchy
-    // 3. Read vertices, normals, UVs
-    // 4. Parse material definitions
-    // 5. Create THREE.js geometries, materials, and skinned mesh
-
-    // Create placeholder geometry
+    try {
+      // Parse the Ninja model format
+      const magic = String.fromCharCode(
+        dataView.getUint8(0),
+        dataView.getUint8(1),
+        dataView.getUint8(2),
+        dataView.getUint8(3)
+      );
+      
+      console.log(`Processing NJ model with format: ${magic}`);
+      
+      // Check if this is a valid Ninja model
+      if (magic !== 'NJTL' && magic !== 'NJCM' && magic !== 'NJBM') {
+        console.warn(`Unknown NJ format: ${magic}, attempting to parse anyway`);
+      }
+    
+    let offset = 8; // Skip header and size
+    
+    // Process any texture list if present (NJTL format)
+    if (magic === 'NJTL') {
+      const textureListCount = dataView.getUint16(offset, true);
+      offset += 2;
+      console.log(`Texture list contains ${textureListCount} textures`);
+      
+      // Skip texture list data for now - we're using externally loaded textures
+      // Each texture entry has name (16 bytes) + attributes (4 bytes)
+      offset += textureListCount * 20;
+      
+      // Check for another chunk after texture list
+      if (offset + 4 <= dataView.byteLength) {
+        const nextMagic = String.fromCharCode(
+          dataView.getUint8(offset),
+          dataView.getUint8(offset+1),
+          dataView.getUint8(offset+2),
+          dataView.getUint8(offset+3)
+        );
+        
+        if (nextMagic === 'NJCM' || nextMagic === 'NJBM') {
+          console.log(`Found model data after texture list: ${nextMagic}`);
+          offset += 8; // Skip header and size of model chunk
+        }
+      }
+    }
+    
+    // Extract vertex data
+    const vertexCount = dataView.getUint16(offset, true);
+    offset += 2;
+    console.log(`Vertex count: ${vertexCount}`);
+    
+    // Sanity check for reasonable vertex count
+    if (vertexCount <= 0 || vertexCount > 10000) {
+      console.warn(`Unusual vertex count: ${vertexCount}, might indicate parsing error`);
+    }
+    
+    // Create arrays for vertex data
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const uvs: number[] = [];
+    
+    // Parse vertex data
+    for (let i = 0; i < vertexCount; i++) {
+      // Position (XYZ)
+      const x = dataView.getFloat32(offset, true);
+      offset += 4;
+      const y = dataView.getFloat32(offset, true);
+      offset += 4;
+      const z = dataView.getFloat32(offset, true);
+      offset += 4;
+      
+      positions.push(x, y, z);
+      
+      // Normal (XYZ) - handle case where normals might not be included
+      if (magic === 'NJCM' || magic === 'NJBM') {
+        const nx = dataView.getFloat32(offset, true);
+        offset += 4;
+        const ny = dataView.getFloat32(offset, true);
+        offset += 4;
+        const nz = dataView.getFloat32(offset, true);
+        offset += 4;
+        
+        normals.push(nx, ny, nz);
+      } else {
+        // Generate default normal
+        normals.push(0, 1, 0);
+      }
+      
+      // UV coordinates - handle cases where UVs might not be included
+      if (offset + 8 <= dataView.byteLength) {
+        const u = dataView.getFloat32(offset, true);
+        offset += 4;
+        const v = dataView.getFloat32(offset, true);
+        offset += 4;
+        
+        uvs.push(u, v);
+      } else {
+        // Generate default UVs
+        uvs.push(0, 0);
+      }
+    }
+    
+    // Parse triangle data
+    const triCount = dataView.getUint16(offset, true);
+    offset += 2;
+    console.log(`Triangle count: ${triCount}`);
+    
+    const indices: number[] = [];
+    const materialIndices: number[] = [];
+    
+    // Parse triangle indices
+    for (let i = 0; i < triCount; i++) {
+      // Each triangle has 3 vertex indices
+      const a = dataView.getUint16(offset, true);
+      offset += 2;
+      const b = dataView.getUint16(offset, true);
+      offset += 2;
+      const c = dataView.getUint16(offset, true);
+      offset += 2;
+      
+      indices.push(a, b, c);
+      
+      // Try to read material or texture index if available
+      // Some formats have material/texture info after triangle vertices
+      if (offset + 2 <= dataView.byteLength && i === 0) {
+        try {
+          const materialIndex = dataView.getUint16(offset, true);
+          // Don't increment offset here - just peeking to check format
+          
+          // Store for later if in a reasonable range
+          if (materialIndex < 100) {
+            materialIndices.push(materialIndex);
+          }
+        } catch (e) {
+          // Ignore errors when peeking
+        }
+      }
+    }
+    
+    // Create Three.js geometry
     const geometry = new THREE.BufferGeometry();
-
-    // Add a cube as placeholder
-    const vertices = new Float32Array([
-      // Front face
-      -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, 1,
-      // Back face
-      -1, -1, -1, -1, 1, -1, 1, 1, -1, 1, -1, -1,
-      // Top face
-      -1, 1, -1, -1, 1, 1, 1, 1, 1, 1, 1, -1,
-      // Bottom face
-      -1, -1, -1, 1, -1, -1, 1, -1, 1, -1, -1, 1,
-      // Right face
-      1, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1,
-      // Left face
-      -1, -1, -1, -1, -1, 1, -1, 1, 1, -1, 1, -1,
-    ]);
-
-    const indices = [
-      0,
-      1,
-      2,
-      0,
-      2,
-      3, // front
-      4,
-      5,
-      6,
-      4,
-      6,
-      7, // back
-      8,
-      9,
-      10,
-      8,
-      10,
-      11, // top
-      12,
-      13,
-      14,
-      12,
-      14,
-      15, // bottom
-      16,
-      17,
-      18,
-      16,
-      18,
-      19, // right
-      20,
-      21,
-      22,
-      20,
-      22,
-      23, // left
-    ];
-
-    // Add UVs
-    const uvs = new Float32Array([
-      0,
-      0,
-      1,
-      0,
-      1,
-      1,
-      0,
-      1, // front
-      0,
-      0,
-      1,
-      0,
-      1,
-      1,
-      0,
-      1, // back
-      0,
-      0,
-      1,
-      0,
-      1,
-      1,
-      0,
-      1, // top
-      0,
-      0,
-      1,
-      0,
-      1,
-      1,
-      0,
-      1, // bottom
-      0,
-      0,
-      1,
-      0,
-      1,
-      1,
-      0,
-      1, // right
-      0,
-      0,
-      1,
-      0,
-      1,
-      1,
-      0,
-      1, // left
-    ]);
-
-    geometry.setAttribute("position", new THREE.BufferAttribute(vertices, 3));
-    geometry.setAttribute("uv", new THREE.BufferAttribute(uvs, 2));
-    geometry.setIndex(indices);
-    geometry.computeVertexNormals();
-
-    // Create dummy bones for the placeholder
+    
+    // Add attributes
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    
+    if (normals.length > 0) {
+      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    } else {
+      geometry.computeVertexNormals();
+    }
+    
+    if (uvs.length > 0) {
+      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    }
+    
+    // Add indices
+    if (indices.length > 0) {
+      geometry.setIndex(indices);
+    }
+    
+    // Parse bone data if present
     const bones: THREE.Bone[] = [];
-    const rootBone = new THREE.Bone();
-    rootBone.position.set(0, 0, 0);
-    bones.push(rootBone);
-
-    const childBone = new THREE.Bone();
-    childBone.position.set(0, 1, 0);
-    rootBone.add(childBone);
-    bones.push(childBone);
-
+    let boneCount = 0;
+    
+    // Try to parse bone hierarchy if format supports it and offset is still within range
+    if (magic === 'NJBM' && offset + 2 <= dataView.byteLength) {
+      boneCount = dataView.getUint16(offset, true);
+      offset += 2;
+      console.log(`Bone count: ${boneCount}`);
+      
+      // Root bone
+      const rootBone = new THREE.Bone();
+      rootBone.position.set(0, 0, 0);
+      bones.push(rootBone);
+      
+      // Parse child bones
+      for (let i = 1; i < boneCount; i++) {
+        const parentIndex = dataView.getUint16(offset, true);
+        offset += 2;
+        
+        const x = dataView.getFloat32(offset, true);
+        offset += 4;
+        const y = dataView.getFloat32(offset, true);
+        offset += 4;
+        const z = dataView.getFloat32(offset, true);
+        offset += 4;
+        
+        const bone = new THREE.Bone();
+        bone.position.set(x, y, z);
+        
+        // Add to parent
+        if (parentIndex < bones.length) {
+          bones[parentIndex].add(bone);
+        } else {
+          console.warn(`Invalid parent index: ${parentIndex} for bone ${i}`);
+          rootBone.add(bone);
+        }
+        
+        bones.push(bone);
+      }
+    } else {
+      // Create default bones if not present in file
+      const rootBone = new THREE.Bone();
+      rootBone.position.set(0, 0, 0);
+      bones.push(rootBone);
+      
+      const childBone = new THREE.Bone();
+      childBone.position.set(0, 1, 0);
+      rootBone.add(childBone);
+      bones.push(childBone);
+      
+      boneCount = 2;
+    }
+    
     // Create materials
     const materials: THREE.Material[] = [];
-
+    
     if (textures.length > 0) {
-      // Use the loaded textures if available
-      textures.forEach((texture) => {
-        const material = new THREE.MeshBasicMaterial({
+      // Use the loaded textures
+      textures.forEach((texture, index) => {
+        // Check if we have material/color info
+        // For now, we'll use some predefined colors
+        const colors = [
+          0xffffff, // white
+          0xff8888, // light red
+          0x88ff88, // light green
+          0x8888ff, // light blue
+          0xffff88, // light yellow
+        ];
+        
+        const materialColor = colors[index % colors.length];
+        
+        const material = new THREE.MeshStandardMaterial({
           map: texture,
+          color: materialColor,
+          metalness: 0.2,
+          roughness: 0.8,
           skinning: true,
           transparent: true,
         });
         materials.push(material);
       });
     } else {
-      // Fallback to basic colored materials
-      materials.push(
-        new THREE.MeshBasicMaterial({
-          color: 0x44aaff,
-          wireframe: false,
-          skinning: true,
-          transparent: true,
-        }),
-      );
+      // Create some default colored materials
+      const defaultColors = [0x44aaff, 0xff6644, 0x88cc33, 0xffcc22];
+      
+      // Use material indices if available, otherwise create one default material
+      if (materialIndices.length > 0) {
+        materialIndices.forEach((matIndex) => {
+          materials.push(
+            new THREE.MeshStandardMaterial({
+              color: defaultColors[matIndex % defaultColors.length],
+              metalness: 0.2,
+              roughness: 0.8,
+              wireframe: false,
+              skinning: true,
+              transparent: true,
+            }),
+          );
+        });
+      } else {
+        // Fallback to basic colored material
+        materials.push(
+          new THREE.MeshStandardMaterial({
+            color: 0x44aaff,
+            metalness: 0.2,
+            roughness: 0.8,
+            wireframe: false,
+            skinning: true,
+            transparent: true,
+          }),
+        );
+      }
     }
-
+    
+    console.log(`Successfully parsed model with ${vertexCount} vertices, ${triCount} triangles, and ${boneCount} bones`);
+    
     return {
       id: 1,
       bones,
       skeleton: new THREE.Skeleton(bones),
-      vertices: vertices.length / 3,
-      polygons: indices.length / 3,
+      vertices: vertexCount,
+      polygons: triCount,
       geometry,
       materials,
     };
+    
+    } catch (error) {
+      console.error("Error parsing NJ model:", error);
+      
+      // Create a fallback cube model in case of error
+      console.warn("Using fallback cube model");
+      
+      const geometry = new THREE.BoxGeometry(1, 1, 1);
+      geometry.computeVertexNormals();
+      
+      // Create dummy bones
+      const bones: THREE.Bone[] = [];
+      const rootBone = new THREE.Bone();
+      rootBone.position.set(0, 0, 0);
+      bones.push(rootBone);
+      
+      const childBone = new THREE.Bone();
+      childBone.position.set(0, 1, 0);
+      rootBone.add(childBone);
+      bones.push(childBone);
+      
+      // Create fallback material
+      const materials: THREE.Material[] = [];
+      
+      if (textures.length > 0) {
+        // Use the loaded textures if available
+        textures.forEach((texture) => {
+          const material = new THREE.MeshStandardMaterial({
+            map: texture,
+            metalness: 0.2,
+            roughness: 0.8,
+            skinning: true,
+            transparent: true,
+          });
+          materials.push(material);
+        });
+      } else {
+        // Fallback to basic colored material with wireframe
+        materials.push(
+          new THREE.MeshStandardMaterial({
+            color: 0xff4444, // Red to indicate error
+            metalness: 0.2,
+            roughness: 0.8,
+            wireframe: true,
+            skinning: true,
+            transparent: true,
+          }),
+        );
+      }
+      
+      return {
+        id: 0,
+        bones,
+        skeleton: new THREE.Skeleton(bones),
+        vertices: 8,  // 8 vertices in a cube
+        polygons: 12, // 12 triangles in a cube (2 per face × 6 faces)
+        geometry,
+        materials,
+      };
+    }
   };
 
   // Component to render and animate the model
@@ -391,6 +567,7 @@ const NJViewer: React.FC<NJViewerProps> = ({
         <Canvas camera={{ position: [0, 2, 5], fov: 50 }}>
           <ambientLight intensity={0.5} />
           <pointLight position={[10, 10, 10]} intensity={1} />
+          <pointLight position={[-10, -10, -10]} intensity={0.5} color="#8080ff" />
           <Model mesh={placeholderMesh!} />
           <OrbitControls />
           <gridHelper args={[10, 10]} />
@@ -418,6 +595,7 @@ const NJViewer: React.FC<NJViewerProps> = ({
         <Canvas camera={{ position: [0, 2, 5], fov: 50 }}>
           <ambientLight intensity={0.5} />
           <pointLight position={[10, 10, 10]} intensity={1} />
+          <pointLight position={[-10, -10, -10]} intensity={0.5} color="#8080ff" />
           <Model mesh={mesh || placeholderMesh!} />
           <OrbitControls />
           <gridHelper args={[10, 10]} />
