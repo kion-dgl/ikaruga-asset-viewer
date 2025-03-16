@@ -3,6 +3,7 @@ import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Stats } from "@react-three/drei";
 import * as THREE from "three";
 import { parsePvr } from "../lib/parsePvr";
+import { parseNinjaModel, NJMeshData } from "../lib/njParse";
 
 interface NJHeader {
   magic: string;
@@ -12,15 +13,8 @@ interface NJHeader {
   polygons: number;
 }
 
-interface NJMesh {
-  id: number;
-  bones: THREE.Bone[];
-  skeleton: THREE.Skeleton;
-  vertices: number;
-  polygons: number;
-  geometry: THREE.BufferGeometry;
-  materials: THREE.Material[];
-}
+// Use the interface from njParse.ts
+type NJMesh = NJMeshData;
 
 interface NJViewerProps {
   modelPath: string;
@@ -93,7 +87,7 @@ const NJViewer: React.FC<NJViewerProps> = ({
 
   // Parse NJ file after textures are loaded
   useEffect(() => {
-    const parseNinjaModel = async () => {
+    const loadAndParseModel = async () => {
       setLoading(true);
       setError(null);
 
@@ -105,10 +99,11 @@ const NJViewer: React.FC<NJViewerProps> = ({
           throw new Error(`Failed to load model: ${response.statusText}`);
         }
 
-        console.log("model loaded");
+        console.log("Model file fetched successfully");
 
-        const arrayBuffer = await response.arrayBuffer();
-        const dataView = new DataView(arrayBuffer);
+        // Get the model data as ArrayBuffer
+        const modelBuffer = await response.arrayBuffer();
+        const dataView = new DataView(modelBuffer);
 
         // Check magic (NJTL, NJCM, etc)
         const magic = String.fromCharCode(
@@ -117,21 +112,22 @@ const NJViewer: React.FC<NJViewerProps> = ({
           dataView.getUint8(2),
           dataView.getUint8(3),
         );
-        console.log(`Model magic: ${magic}`);
+        console.log(`Model format: ${magic}`);
 
-        // Basic header info for display
+        // Create header info for display
         const header: NJHeader = {
           magic,
-          dataSize: dataView.getUint32(4, true),
-          bones: 0, // To be calculated during parsing
+          dataSize: modelBuffer.byteLength,
+          bones: 0, // To be calculated after parsing
           vertices: 0,
           polygons: 0,
         };
 
-        // For now, always create a placeholder model instead of trying to parse
-        // the actual NJ data which will require a more complete implementation
-        const parsedModel = parseNinjaModelData(dataView, textures);
+        // Call the dedicated parser from njParse.ts
+        // This function will be implemented separately by the user
+        const parsedModel = parseNinjaModel(modelBuffer, textures);
 
+        // Update header with model details
         header.bones = parsedModel.bones.length;
         header.vertices = parsedModel.vertices;
         header.polygons = parsedModel.polygons;
@@ -144,253 +140,47 @@ const NJViewer: React.FC<NJViewerProps> = ({
         setMesh(parsedModel);
         setLoading(false);
       } catch (err) {
-        console.error("Error parsing NJ model:", err);
+        console.error("Error loading or parsing NJ model:", err);
         setError(err instanceof Error ? err.message : "Failed to parse model");
         setLoading(false);
+        
+        // Create a placeholder model on error
+        setMesh(loadPlaceholderModel(textures));
       }
     };
 
-    parseNinjaModel();
+    loadAndParseModel();
   }, [modelPath, textures]);
 
-  // Parse Ninja Model data 
-  const parseNinjaModelData = (
-    dataView: DataView,
+  // This will be replaced by the dedicated parser from lib/njParse.ts
+  const loadPlaceholderModel = (
     textures: THREE.Texture[],
   ): NJMesh => {
-    try {
-      // Parse the Ninja model format
-      const magic = String.fromCharCode(
-        dataView.getUint8(0),
-        dataView.getUint8(1),
-        dataView.getUint8(2),
-        dataView.getUint8(3)
-      );
-      
-      console.log(`Processing NJ model with format: ${magic}`);
-      
-      // Check if this is a valid Ninja model
-      if (magic !== 'NJTL' && magic !== 'NJCM' && magic !== 'NJBM') {
-        console.warn(`Unknown NJ format: ${magic}, attempting to parse anyway`);
-      }
+    console.log("Using placeholder model until njParse.ts is implemented");
     
-    let offset = 8; // Skip header and size
+    // Create a simple cube geometry
+    const geometry = new THREE.BoxGeometry(1, 1, 1);
+    geometry.computeVertexNormals();
     
-    // Process any texture list if present (NJTL format)
-    if (magic === 'NJTL') {
-      const textureListCount = dataView.getUint16(offset, true);
-      offset += 2;
-      console.log(`Texture list contains ${textureListCount} textures`);
-      
-      // Skip texture list data for now - we're using externally loaded textures
-      // Each texture entry has name (16 bytes) + attributes (4 bytes)
-      offset += textureListCount * 20;
-      
-      // Check for another chunk after texture list
-      if (offset + 4 <= dataView.byteLength) {
-        const nextMagic = String.fromCharCode(
-          dataView.getUint8(offset),
-          dataView.getUint8(offset+1),
-          dataView.getUint8(offset+2),
-          dataView.getUint8(offset+3)
-        );
-        
-        if (nextMagic === 'NJCM' || nextMagic === 'NJBM') {
-          console.log(`Found model data after texture list: ${nextMagic}`);
-          offset += 8; // Skip header and size of model chunk
-        }
-      }
-    }
-    
-    // Extract vertex data
-    const vertexCount = dataView.getUint16(offset, true);
-    offset += 2;
-    console.log(`Vertex count: ${vertexCount}`);
-    
-    // Sanity check for reasonable vertex count
-    if (vertexCount <= 0 || vertexCount > 10000) {
-      console.warn(`Unusual vertex count: ${vertexCount}, might indicate parsing error`);
-    }
-    
-    // Create arrays for vertex data
-    const positions: number[] = [];
-    const normals: number[] = [];
-    const uvs: number[] = [];
-    
-    // Parse vertex data
-    for (let i = 0; i < vertexCount; i++) {
-      // Position (XYZ)
-      const x = dataView.getFloat32(offset, true);
-      offset += 4;
-      const y = dataView.getFloat32(offset, true);
-      offset += 4;
-      const z = dataView.getFloat32(offset, true);
-      offset += 4;
-      
-      positions.push(x, y, z);
-      
-      // Normal (XYZ) - handle case where normals might not be included
-      if (magic === 'NJCM' || magic === 'NJBM') {
-        const nx = dataView.getFloat32(offset, true);
-        offset += 4;
-        const ny = dataView.getFloat32(offset, true);
-        offset += 4;
-        const nz = dataView.getFloat32(offset, true);
-        offset += 4;
-        
-        normals.push(nx, ny, nz);
-      } else {
-        // Generate default normal
-        normals.push(0, 1, 0);
-      }
-      
-      // UV coordinates - handle cases where UVs might not be included
-      if (offset + 8 <= dataView.byteLength) {
-        const u = dataView.getFloat32(offset, true);
-        offset += 4;
-        const v = dataView.getFloat32(offset, true);
-        offset += 4;
-        
-        uvs.push(u, v);
-      } else {
-        // Generate default UVs
-        uvs.push(0, 0);
-      }
-    }
-    
-    // Parse triangle data
-    const triCount = dataView.getUint16(offset, true);
-    offset += 2;
-    console.log(`Triangle count: ${triCount}`);
-    
-    const indices: number[] = [];
-    const materialIndices: number[] = [];
-    
-    // Parse triangle indices
-    for (let i = 0; i < triCount; i++) {
-      // Each triangle has 3 vertex indices
-      const a = dataView.getUint16(offset, true);
-      offset += 2;
-      const b = dataView.getUint16(offset, true);
-      offset += 2;
-      const c = dataView.getUint16(offset, true);
-      offset += 2;
-      
-      indices.push(a, b, c);
-      
-      // Try to read material or texture index if available
-      // Some formats have material/texture info after triangle vertices
-      if (offset + 2 <= dataView.byteLength && i === 0) {
-        try {
-          const materialIndex = dataView.getUint16(offset, true);
-          // Don't increment offset here - just peeking to check format
-          
-          // Store for later if in a reasonable range
-          if (materialIndex < 100) {
-            materialIndices.push(materialIndex);
-          }
-        } catch (e) {
-          // Ignore errors when peeking
-        }
-      }
-    }
-    
-    // Create Three.js geometry
-    const geometry = new THREE.BufferGeometry();
-    
-    // Add attributes
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    
-    if (normals.length > 0) {
-      geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-    } else {
-      geometry.computeVertexNormals();
-    }
-    
-    if (uvs.length > 0) {
-      geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
-    }
-    
-    // Add indices
-    if (indices.length > 0) {
-      geometry.setIndex(indices);
-    }
-    
-    // Parse bone data if present
+    // Create dummy bones for the placeholder
     const bones: THREE.Bone[] = [];
-    let boneCount = 0;
+    const rootBone = new THREE.Bone();
+    rootBone.position.set(0, 0, 0);
+    bones.push(rootBone);
     
-    // Try to parse bone hierarchy if format supports it and offset is still within range
-    if (magic === 'NJBM' && offset + 2 <= dataView.byteLength) {
-      boneCount = dataView.getUint16(offset, true);
-      offset += 2;
-      console.log(`Bone count: ${boneCount}`);
-      
-      // Root bone
-      const rootBone = new THREE.Bone();
-      rootBone.position.set(0, 0, 0);
-      bones.push(rootBone);
-      
-      // Parse child bones
-      for (let i = 1; i < boneCount; i++) {
-        const parentIndex = dataView.getUint16(offset, true);
-        offset += 2;
-        
-        const x = dataView.getFloat32(offset, true);
-        offset += 4;
-        const y = dataView.getFloat32(offset, true);
-        offset += 4;
-        const z = dataView.getFloat32(offset, true);
-        offset += 4;
-        
-        const bone = new THREE.Bone();
-        bone.position.set(x, y, z);
-        
-        // Add to parent
-        if (parentIndex < bones.length) {
-          bones[parentIndex].add(bone);
-        } else {
-          console.warn(`Invalid parent index: ${parentIndex} for bone ${i}`);
-          rootBone.add(bone);
-        }
-        
-        bones.push(bone);
-      }
-    } else {
-      // Create default bones if not present in file
-      const rootBone = new THREE.Bone();
-      rootBone.position.set(0, 0, 0);
-      bones.push(rootBone);
-      
-      const childBone = new THREE.Bone();
-      childBone.position.set(0, 1, 0);
-      rootBone.add(childBone);
-      bones.push(childBone);
-      
-      boneCount = 2;
-    }
+    const childBone = new THREE.Bone();
+    childBone.position.set(0, 1, 0);
+    rootBone.add(childBone);
+    bones.push(childBone);
     
-    // Create materials
+    // Create material
     const materials: THREE.Material[] = [];
     
     if (textures.length > 0) {
-      // Use the loaded textures
-      textures.forEach((texture, index) => {
-        // Check if we have material/color info
-        // For now, we'll use some predefined colors
-        const colors = [
-          0xffffff, // white
-          0xff8888, // light red
-          0x88ff88, // light green
-          0x8888ff, // light blue
-          0xffff88, // light yellow
-        ];
-        
-        const materialColor = colors[index % colors.length];
-        
+      // Use the loaded textures if available
+      textures.forEach((texture) => {
         const material = new THREE.MeshStandardMaterial({
           map: texture,
-          color: materialColor,
           metalness: 0.2,
           roughness: 0.8,
           skinning: true,
@@ -399,109 +189,28 @@ const NJViewer: React.FC<NJViewerProps> = ({
         materials.push(material);
       });
     } else {
-      // Create some default colored materials
-      const defaultColors = [0x44aaff, 0xff6644, 0x88cc33, 0xffcc22];
-      
-      // Use material indices if available, otherwise create one default material
-      if (materialIndices.length > 0) {
-        materialIndices.forEach((matIndex) => {
-          materials.push(
-            new THREE.MeshStandardMaterial({
-              color: defaultColors[matIndex % defaultColors.length],
-              metalness: 0.2,
-              roughness: 0.8,
-              wireframe: false,
-              skinning: true,
-              transparent: true,
-            }),
-          );
-        });
-      } else {
-        // Fallback to basic colored material
-        materials.push(
-          new THREE.MeshStandardMaterial({
-            color: 0x44aaff,
-            metalness: 0.2,
-            roughness: 0.8,
-            wireframe: false,
-            skinning: true,
-            transparent: true,
-          }),
-        );
-      }
+      // Fallback to basic colored material
+      materials.push(
+        new THREE.MeshStandardMaterial({
+          color: 0x44aaff,
+          metalness: 0.2,
+          roughness: 0.8,
+          wireframe: false,
+          skinning: true,
+          transparent: true,
+        }),
+      );
     }
-    
-    console.log(`Successfully parsed model with ${vertexCount} vertices, ${triCount} triangles, and ${boneCount} bones`);
     
     return {
       id: 1,
       bones,
       skeleton: new THREE.Skeleton(bones),
-      vertices: vertexCount,
-      polygons: triCount,
+      vertices: 8,
+      polygons: 12,
       geometry,
       materials,
     };
-    
-    } catch (error) {
-      console.error("Error parsing NJ model:", error);
-      
-      // Create a fallback cube model in case of error
-      console.warn("Using fallback cube model");
-      
-      const geometry = new THREE.BoxGeometry(1, 1, 1);
-      geometry.computeVertexNormals();
-      
-      // Create dummy bones
-      const bones: THREE.Bone[] = [];
-      const rootBone = new THREE.Bone();
-      rootBone.position.set(0, 0, 0);
-      bones.push(rootBone);
-      
-      const childBone = new THREE.Bone();
-      childBone.position.set(0, 1, 0);
-      rootBone.add(childBone);
-      bones.push(childBone);
-      
-      // Create fallback material
-      const materials: THREE.Material[] = [];
-      
-      if (textures.length > 0) {
-        // Use the loaded textures if available
-        textures.forEach((texture) => {
-          const material = new THREE.MeshStandardMaterial({
-            map: texture,
-            metalness: 0.2,
-            roughness: 0.8,
-            skinning: true,
-            transparent: true,
-          });
-          materials.push(material);
-        });
-      } else {
-        // Fallback to basic colored material with wireframe
-        materials.push(
-          new THREE.MeshStandardMaterial({
-            color: 0xff4444, // Red to indicate error
-            metalness: 0.2,
-            roughness: 0.8,
-            wireframe: true,
-            skinning: true,
-            transparent: true,
-          }),
-        );
-      }
-      
-      return {
-        id: 0,
-        bones,
-        skeleton: new THREE.Skeleton(bones),
-        vertices: 8,  // 8 vertices in a cube
-        polygons: 12, // 12 triangles in a cube (2 per face × 6 faces)
-        geometry,
-        materials,
-      };
-    }
   };
 
   // Component to render and animate the model
