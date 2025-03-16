@@ -6,22 +6,21 @@ description: Texture used in Ikaruga
 import PVMViewer from '@components/PVMViewer';
 import NJViewer from "@components/NjViewer";
 
+## 3D Model
+
+This texture is used by the following 3D model:
+
+<NJViewer
+  client:load
+  modelPath="OBJ/COCK.NJ"
+  texturePaths={["OBJ/COCK.PVM"]}
+  width={600}
+  height={400}
+/>
+
 # COCK Texture
 
 <PVMViewer
   client:load
   filePath="OBJ/COCK.PVM"
 />
-
-
-## 3D Model
-
-This texture is used by the following 3D model:
-
-<NJViewer 
-  modelPath="OBJ/COCK.NJ" 
-  texturePaths={["OBJ/COCK.PVM"]}
-  width={600}
-  height={400}
-/>
-
