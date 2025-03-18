@@ -2,13 +2,13 @@ import React, { useState, useEffect, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { OrbitControls, Stats } from "@react-three/drei";
 import * as THREE from "three";
-import { 
-  SkinnedMesh, 
-  AnimationMixer, 
-  Clock, 
+import {
+  SkinnedMesh,
+  AnimationMixer,
+  Clock,
   LoopRepeat,
   AnimationClip,
-  VectorKeyframeTrack 
+  VectorKeyframeTrack,
 } from "three";
 import { parsePvr } from "../lib/parsePvr";
 import { parseNinjaModel, NinjaModel } from "../lib/njParse";
@@ -21,7 +21,9 @@ interface NJViewerProps {
 }
 
 // Component to handle the rotation of the model and animation
-const Model: React.FC<{ mesh: THREE.SkinnedMesh | THREE.Mesh }> = ({ mesh }) => {
+const Model: React.FC<{ mesh: THREE.SkinnedMesh | THREE.Mesh }> = ({
+  mesh,
+}) => {
   const groupRef = useRef<THREE.Group>(null);
   const mixer = useRef<THREE.AnimationMixer | null>(null);
   const clock = useRef<THREE.Clock>(new THREE.Clock());
@@ -31,7 +33,7 @@ const Model: React.FC<{ mesh: THREE.SkinnedMesh | THREE.Mesh }> = ({ mesh }) => 
     if (mesh instanceof THREE.SkinnedMesh && mesh.skeleton) {
       // Create animation mixer for skeletal animation
       mixer.current = new THREE.AnimationMixer(mesh);
-      
+
       // Create a simple animation for demonstration
       const tracks: THREE.KeyframeTrack[] = [];
       const times = [0, 1, 2]; // keyframe times
@@ -41,20 +43,20 @@ const Model: React.FC<{ mesh: THREE.SkinnedMesh | THREE.Mesh }> = ({ mesh }) => 
         // Slightly moved
         0, 0.1, 0,
         // Back to initial
-        0, 0, 0
+        0, 0, 0,
       ];
-      
+
       // Create position track for the first bone if it exists
       if (mesh.skeleton.bones.length > 0) {
         const positionKF = new THREE.VectorKeyframeTrack(
           `.skeleton.bones[0].position`,
           times,
-          positions
+          positions,
         );
         tracks.push(positionKF);
-        
+
         // Create a clip and play it
-        const clip = new THREE.AnimationClip('simpleAnimation', 2, tracks);
+        const clip = new THREE.AnimationClip("simpleAnimation", 2, tracks);
         const action = mixer.current.clipAction(clip);
         action.setLoop(THREE.LoopRepeat, Infinity);
         action.play();
@@ -67,7 +69,7 @@ const Model: React.FC<{ mesh: THREE.SkinnedMesh | THREE.Mesh }> = ({ mesh }) => 
     if (mixer.current) {
       mixer.current.update(clock.current.getDelta());
     }
-    
+
     // Slowly rotate the model
     if (groupRef.current) {
       groupRef.current.rotation.y += 0.005;
@@ -87,8 +89,12 @@ const NJViewer: React.FC<NJViewerProps> = ({
   width = 600,
   height = 400,
 }) => {
-  const [model, setModel] = useState<THREE.SkinnedMesh | THREE.Mesh | null>(null);
-  const [textures, setTextures] = useState<Map<number, THREE.Texture>>(new Map());
+  const [model, setModel] = useState<THREE.SkinnedMesh | THREE.Mesh | null>(
+    null,
+  );
+  const [textures, setTextures] = useState<Map<number, THREE.Texture>>(
+    new Map(),
+  );
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -149,7 +155,7 @@ const NJViewer: React.FC<NJViewerProps> = ({
     const loadModel = async () => {
       setLoading(true);
       setError(null);
-      
+
       try {
         console.log(`Loading model: ${modelPath}`);
         // Fetch the NJ file
@@ -161,39 +167,41 @@ const NJViewer: React.FC<NJViewerProps> = ({
         // Get the model data as ArrayBuffer
         const modelBuffer = await response.arrayBuffer();
         const parsedModel = parseNinjaModel(modelBuffer);
-        
-        if (parsedModel.model) {
-          // Create a mesh from the parsed model
-          const mesh = parsedModel.model.createMesh();
-          
-          // Apply textures if available
-          if (mesh.material instanceof THREE.MeshBasicMaterial) {
-            // Single material
-            if (textures.size > 0 && mesh.material.map === null) {
-              mesh.material.map = textures.get(0) || null;
-              mesh.material.needsUpdate = true;
-            }
-          } else if (Array.isArray(mesh.material)) {
-            // Multiple materials
-            for (let i = 0; i < mesh.material.length; i++) {
-              const mat = mesh.material[i];
-              if (mat instanceof THREE.MeshBasicMaterial) {
-                // Find texture based on material's texId if available
-                if (textures.size > 0 && mat.map === null) {
-                  mat.map = textures.get(i) || null;
-                  mat.needsUpdate = true;
-                }
-              }
-            }
-          }
-          
-          setModel(mesh);
-        } else {
-          throw new Error("Failed to parse model data");
-        }
+
+        // if (parsedModel.model) {
+        //   // Create a mesh from the parsed model
+        //   const mesh = parsedModel.model.createMesh();
+
+        //   // Apply textures if available
+        //   if (mesh.material instanceof THREE.MeshBasicMaterial) {
+        //     // Single material
+        //     if (textures.size > 0 && mesh.material.map === null) {
+        //       mesh.material.map = textures.get(0) || null;
+        //       mesh.material.needsUpdate = true;
+        //     }
+        //   } else if (Array.isArray(mesh.material)) {
+        //     // Multiple materials
+        //     for (let i = 0; i < mesh.material.length; i++) {
+        //       const mat = mesh.material[i];
+        //       if (mat instanceof THREE.MeshBasicMaterial) {
+        //         // Find texture based on material's texId if available
+        //         if (textures.size > 0 && mat.map === null) {
+        //           mat.map = textures.get(i) || null;
+        //           mat.needsUpdate = true;
+        //         }
+        //       }
+        //     }
+        //   }
+
+        //   setModel(mesh);
+        // } else {
+        //   throw new Error("Failed to parse model data");
+        // }
       } catch (err) {
         console.error("Error loading or parsing NJ model:", err);
-        setError(err instanceof Error ? err.message : "Unknown error loading model");
+        setError(
+          err instanceof Error ? err.message : "Unknown error loading model",
+        );
       } finally {
         setLoading(false);
       }
@@ -212,13 +220,13 @@ const NJViewer: React.FC<NJViewerProps> = ({
           <div className="text-white">Loading model...</div>
         </div>
       )}
-      
+
       {error && (
         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30 z-10">
           <div className="text-red-500">{error}</div>
         </div>
       )}
-      
+
       <Canvas camera={{ position: [0, 2, 5], fov: 50 }}>
         <ambientLight intensity={0.5} />
         <pointLight position={[10, 10, 10]} intensity={1} />
@@ -227,7 +235,7 @@ const NJViewer: React.FC<NJViewerProps> = ({
           intensity={0.5}
           color="#8080ff"
         />
-        
+
         {model ? (
           <Model mesh={model} />
         ) : (
@@ -237,7 +245,7 @@ const NJViewer: React.FC<NJViewerProps> = ({
             <meshStandardMaterial color="#6be092" />
           </mesh>
         )}
-        
+
         <OrbitControls />
         <gridHelper args={[10, 10]} />
         <axesHelper args={[5]} />

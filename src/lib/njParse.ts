@@ -3,6 +3,7 @@ import {
   Vector3,
   Euler,
   Quaternion,
+  Matrix3,
   Matrix4,
   BufferGeometry,
   BufferAttribute,
@@ -11,7 +12,7 @@ import {
   Material,
   DoubleSide,
 } from "three";
-import ByteReader from "ByteReader";
+import ByteReader from "bytereader";
 
 interface MaterialOptions {
   texId: number;
@@ -72,12 +73,12 @@ class NinjaModel {
     return new Vector3(x, y, z);
   }
 
-  readRotation() {
+  readRotation(isZxy: boolean) {
     const ratio = (2 * Math.PI) / 0xffff;
     const x = this.reader.readInt32() * ratio;
     const y = this.reader.readInt32() * ratio;
     const z = this.reader.readInt32() * ratio;
-    return new Euler(x, y, z);
+    return isZxy ? new Euler(z, x, y) : new Euler(x, y, z);
   }
 
   readQuaternion() {
@@ -119,7 +120,7 @@ class NinjaModel {
     const pos = this.readVector3();
 
     // Euler rotation
-    const rot = this.readRotation();
+    const rot = this.readRotation(this.isBitFlagSet(flags, 5));
     const scl = this.readVector3();
     const childOfs = this.reader.readUInt32();
     const siblingOfs = this.reader.readUInt32();
@@ -129,12 +130,6 @@ class NinjaModel {
     bone.name = `bone_${this.bones.length.toString().padStart(3, "0")}`;
     this.bones.push(bone);
     this.currentBone = bone;
-
-    // Check for special flags
-    const zxyFlag = this.isBitFlagSet(flags, 5);
-    if (zxyFlag) {
-      console.error("ZXY rotation order flag set");
-    }
 
     // Apply scale if not ignoring scale
     if (!this.isBitFlagSet(flags, 2)) {
@@ -168,18 +163,23 @@ class NinjaModel {
       const currentPos = this.reader.tell();
       this.reader.seek(chunkOfs);
 
+      console.log("Seeking to submesh definition: 0x%s", chunkOfs.toString(16));
       const vertexOfs = this.reader.readUInt32();
       const stripOfs = this.reader.readUInt32();
 
       if (vertexOfs) {
+        console.log(
+          "READING CHUNK VERTEX LIST AT: 0x%s",
+          vertexOfs.toString(16),
+        );
         this.reader.seek(vertexOfs);
         this.readChunk();
       }
 
-      if (stripOfs) {
-        this.reader.seek(stripOfs);
-        this.readChunk();
-      }
+      // if (stripOfs) {
+      //   this.reader.seek(stripOfs);
+      //   this.readChunk();
+      // }
 
       this.reader.seek(currentPos);
     }
@@ -250,6 +250,7 @@ class NinjaModel {
 
       // Vertex Chunk
       if (chunk.head >= NJD_VERTOFF) {
+        console.log("Reading Vertex Chunk!!!");
         this.readVertexChunk(chunk);
         continue;
       }
@@ -372,6 +373,8 @@ class NinjaModel {
     // Read index offset and count
     const indexOffset = this.reader.readUInt16();
     const vertexCount = this.reader.readUInt16();
+    console.log("Index: %d", indexOffset);
+    console.log("Vertex Cound: %s", vertexCount);
 
     // Read vertices
     for (let i = 0; i < vertexCount; i++) {
@@ -392,7 +395,19 @@ class NinjaModel {
       // Read normal if present
       if (chunk.head > 0x28 && chunk.head < 0x30) {
         const normal = this.readVector3();
-        vertex.normal = normal;
+        // Transform normal by bone matrix
+        if (this.currentBone) {
+          // For normals, we need to use the normal matrix (inverse transpose of the world matrix)
+          const normalMatrix = new Matrix3().getNormalMatrix(
+            this.currentBone.matrixWorld,
+          );
+          const worldNormal = normal.clone().applyMatrix3(normalMatrix);
+          // Normalize to ensure unit length after transformation
+          worldNormal.normalize();
+          vertex.normal = worldNormal;
+        } else {
+          vertex.normal = normal;
+        }
       }
 
       // Read vertex color if present
@@ -409,6 +424,7 @@ class NinjaModel {
         skinIndices[0] = this.bones.length - 1;
         skinWeights[0] = 1.0;
       } else {
+        console.log("OMG WE HAVE SUB WEIGHTS!!!!!");
         // Read weight values
         const offset = this.reader.readUInt16();
         const weight = this.reader.readUInt16();
@@ -772,7 +788,6 @@ const parseNinjaModel = (buffer: ArrayBuffer): ParsedNinjaModel => {
     const magic = reader.readString(4);
     const len = reader.readUInt32();
     const chunk = reader.getSlice(len);
-    console.log(`Found chunk: ${magic}`);
 
     if (magic === "NJTL") {
       result.textureNames = readNjtl(chunk);
