@@ -42,6 +42,168 @@ export interface PVRHeader {
  * @param buffer The PVR file buffer
  * @param externalPalette Optional external palette data from a PVP file
  */
+// Interface for PVM entries (textures inside a PVM file)
+interface PVMEntry {
+  name: string;
+  data: ArrayBuffer;
+  id?: number;
+  offset?: number; // Offset in the file where PVRT header starts
+}
+
+// Export the interface so it can be imported elsewhere
+export type { PVMEntry };
+
+// Parse a PVM file and extract contained PVR textures
+export const parsePvm = async (
+  buffer: ArrayBuffer
+): Promise<PVMEntry[]> => {
+  const view = new DataView(buffer);
+  let offset = 0;
+
+  // Check for PVMH header (PVM Header)
+  const magic = String.fromCharCode(
+    view.getUint8(offset),
+    view.getUint8(offset + 1),
+    view.getUint8(offset + 2),
+    view.getUint8(offset + 3),
+  );
+
+  if (magic !== "PVMH") {
+    throw new Error("Invalid PVM file format (missing PVMH header)");
+  }
+  offset += 4;
+
+  // Read header data size
+  const dataSize = view.getUint32(offset, true);
+  offset += 4;
+
+  // Skip to end of header based on data size
+  const textureFlags = view.getUint16(offset, true);
+  offset += 2;
+
+  // Read number of textures
+  const textureCount = view.getUint16(offset, true);
+  console.log(`PVM contains ${textureCount} textures`);
+  offset += 2;
+
+  // Parse texture entries
+  const textureEntries: PVMEntry[] = [];
+
+  for (let i = 0; i < textureCount; i++) {
+    const texture: PVMEntry = {
+      name: "",
+      data: new ArrayBuffer(0),
+    };
+
+    // Read texture ID
+    texture.id = view.getUint16(offset, true);
+    offset += 2;
+
+    // Read name if flag is set (bit 3)
+    if (textureFlags & 0x8) {
+      let name = "";
+      for (let j = 0; j < 0x1c; j++) {
+        const charCode = view.getUint8(offset);
+        offset += 1;
+        if (charCode !== 0) {
+          name += String.fromCharCode(charCode);
+        }
+      }
+      texture.name = name;
+    }
+
+    // Skip other flags we don't need right now
+    // Read format if flag is set (bit 2)
+    if (textureFlags & 0x4) {
+      offset += 2; // Skip format
+    }
+
+    // Read dimensions if flag is set (bit 1)
+    if (textureFlags & 0x2) {
+      offset += 2; // Skip dimensions
+    }
+
+    // Read GBIX if flag is set (bit 0)
+    if (textureFlags & 0x1) {
+      offset += 4; // Skip GBIX
+    }
+
+    textureEntries.push(texture);
+  }
+
+  // Now parse the actual texture data
+  // Reset offset flags to read from the beginning
+  offset = 8 + dataSize; // Skip PVMH header + size
+
+  for (let i = 0; i < textureCount; i++) {
+    // Find PVRT magic marker
+    let foundPVRT = false;
+    let searchStartOffset = offset;
+    let attempts = 0;
+    const maxAttempts = 5000; // Prevent infinite loops
+
+    while (
+      !foundPVRT &&
+      offset < view.byteLength - 4 &&
+      attempts < maxAttempts
+    ) {
+      const magic = String.fromCharCode(
+        view.getUint8(offset),
+        view.getUint8(offset + 1),
+        view.getUint8(offset + 2),
+        view.getUint8(offset + 3),
+      );
+
+      if (magic === "PVRT") {
+        foundPVRT = true;
+        // Found PVRT
+      } else {
+        offset += 1;
+        attempts++;
+      }
+    }
+
+    if (!foundPVRT) {
+      console.warn(`Could not find PVRT signature for texture ${i}`);
+      continue; // Skip this texture
+    }
+
+    // Record start of this texture for extracting its buffer
+    const textureStart = offset;
+    textureEntries[i].offset = textureStart;
+
+    // Read PVRT data size
+    offset += 4; // Skip PVRT
+    const pvrDataSize = view.getUint32(offset, true);
+    offset += 4;
+
+    // Calculate the total size of this PVR chunk
+    const totalSize = 8 + pvrDataSize; // PVRT (4) + size (4) + data
+
+    // Extract this texture's data
+    // Make sure we don't go past the end of the buffer
+    const endOffset = Math.min(
+      textureStart + totalSize,
+      buffer.byteLength,
+    );
+    const textureData = buffer.slice(textureStart, endOffset);
+
+    // Validate that we have at least a minimum valid size for a PVR texture
+    if (textureData.byteLength >= 16) { // Minimum header size
+      textureEntries[i].data = textureData;
+      console.log(`Extracted texture ${i} (${textureEntries[i].name}), size: ${textureData.byteLength} bytes`);
+    } else {
+      console.warn(`Texture ${i} is too small (${textureData.byteLength} bytes)`);
+    }
+
+    // Move to next texture
+    offset = textureStart + totalSize;
+  }
+
+  // Filter out entries with no valid data
+  return textureEntries.filter(entry => entry.data.byteLength > 0);
+};
+
 export const parsePvr = async (
   buffer: ArrayBuffer,
   externalPalette?: number[][],
