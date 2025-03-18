@@ -255,6 +255,7 @@ const NJViewer: React.FC<NJViewerProps> = ({
               const material = new THREE.MeshPhongMaterial({
                 side: materialOpts.doubleSide ? THREE.DoubleSide : THREE.FrontSide,
                 transparent: materialOpts.blending || false,
+                alphaTest: 0.05, // Use alphaTest to discard fully transparent pixels
                 name: `Material_${index}`,
               });
               
@@ -266,6 +267,113 @@ const NJViewer: React.FC<NJViewerProps> = ({
                   materialOpts.diffuseColor.b
                 );
                 material.opacity = materialOpts.diffuseColor.a;
+              }
+
+              // Configure custom blending if needed
+              if (materialOpts.blending && 
+                  materialOpts.srcAlpha !== undefined && 
+                  materialOpts.dstAlpha !== undefined) {
+                
+                // Set material to use custom blending
+                material.blending = THREE.CustomBlending;
+                
+                // Map the NJ alpha blend instructions to THREE.js constants
+                // NJ Format values from documentation:
+                // ZER: 0 - Zero
+                // ONE: 1 - One
+                // OC: 2 - 'Other' Color
+                // IOC: 3 - Inverse 'Other' Color
+                // SA: 4 - Src Alpha
+                // ISA: 5 - Inverse Src Alpha
+                // DA: 6 - DST Alpha
+                // IDA: 7 - Inverse DST Alpha
+                
+                // Map source alpha
+                switch (materialOpts.srcAlpha) {
+                  case 0: // ZER - Zero
+                    material.blendSrc = THREE.ZeroFactor;
+                    break;
+                  case 1: // ONE - One
+                    material.blendSrc = THREE.OneFactor;
+                    break;
+                  case 2: // OC - 'Other' Color (Destination Color)
+                    material.blendSrc = THREE.DstColorFactor;
+                    break;
+                  case 3: // IOC - Inverse 'Other' Color (One Minus Destination Color)
+                    material.blendSrc = THREE.OneMinusDstColorFactor;
+                    break;
+                  case 4: // SA - Src Alpha
+                    material.blendSrc = THREE.SrcAlphaFactor;
+                    break;
+                  case 5: // ISA - Inverse Src Alpha
+                    material.blendSrc = THREE.OneMinusSrcAlphaFactor;
+                    break;
+                  case 6: // DA - DST Alpha
+                    material.blendSrc = THREE.DstAlphaFactor;
+                    break;
+                  case 7: // IDA - Inverse DST Alpha
+                    material.blendSrc = THREE.OneMinusDstAlphaFactor;
+                    break;
+                  default:
+                    material.blendSrc = THREE.SrcAlphaFactor; // Default to standard alpha
+                }
+
+                // Map destination alpha
+                switch (materialOpts.dstAlpha) {
+                  case 0: // ZER - Zero
+                    material.blendDst = THREE.ZeroFactor;
+                    break;
+                  case 1: // ONE - One
+                    material.blendDst = THREE.OneFactor;
+                    break;
+                  case 2: // OC - 'Other' Color (Source Color)
+                    material.blendDst = THREE.SrcColorFactor;
+                    break;
+                  case 3: // IOC - Inverse 'Other' Color (One Minus Source Color)
+                    material.blendDst = THREE.OneMinusSrcColorFactor;
+                    break;
+                  case 4: // SA - Src Alpha
+                    material.blendDst = THREE.SrcAlphaFactor;
+                    break;
+                  case 5: // ISA - Inverse Src Alpha
+                    material.blendDst = THREE.OneMinusSrcAlphaFactor;
+                    break;
+                  case 6: // DA - DST Alpha
+                    material.blendDst = THREE.DstAlphaFactor;
+                    break;
+                  case 7: // IDA - Inverse DST Alpha
+                    material.blendDst = THREE.OneMinusDstAlphaFactor;
+                    break;
+                  default:
+                    material.blendDst = THREE.OneMinusSrcAlphaFactor; // Default to standard alpha
+                }
+                
+                // Common alpha blending equation
+                material.blendEquation = THREE.AddEquation;
+                
+                // For very transparent objects, disable depth write to prevent z-fighting
+                if (materialOpts.diffuseColor && materialOpts.diffuseColor.a < 0.5) {
+                  material.depthWrite = false;
+                }
+                
+                // Store blend mode description for debugging
+                const blendMode = `${getBlendModeName(materialOpts.srcAlpha)}-${getBlendModeName(materialOpts.dstAlpha)}`;
+                material.userData.blendMode = blendMode;
+              }
+              
+              // Helper function to convert blend mode numbers to readable names
+              function getBlendModeName(mode: number): string {
+                switch(mode) {
+                  case 0: return 'ZERO';
+                  case 1: return 'ONE';
+                  case 2: return 'OC';
+                  case 3: return 'IOC';
+                  case 4: return 'SA';
+                  case 5: return 'ISA';
+                  case 6: return 'DA';
+                  case 7: return 'IDA';
+                  default: return `?${mode}`;
+                }
               }
               
               let textureApplied = false;
@@ -279,6 +387,10 @@ const NJViewer: React.FC<NJViewerProps> = ({
                   material.map = texture;
                   material.needsUpdate = true;
                   texture.userData.applied = true;
+                  // Pass the blend mode to the texture for debugging display
+                  if (material.userData.blendMode) {
+                    texture.userData.blendMode = material.userData.blendMode;
+                  }
                   console.log(`Applied texture "${textureName}" directly from PVM to material ${index}`);
                   textureApplied = true;
                 }
@@ -290,6 +402,10 @@ const NJViewer: React.FC<NJViewerProps> = ({
                 material.map = texture;
                 material.needsUpdate = true;
                 texture.userData.applied = true;
+                // Pass the blend mode to the texture for debugging display
+                if (material.userData.blendMode) {
+                  texture.userData.blendMode = material.userData.blendMode;
+                }
                 console.log(`Applied texture by index ${materialOpts.texId} to material ${index}`);
                 textureApplied = true;
               }
@@ -311,6 +427,10 @@ const NJViewer: React.FC<NJViewerProps> = ({
                     material.map = texture;
                     material.needsUpdate = true;
                     texture.userData.applied = true;
+                    // Pass the blend mode to the texture for debugging display
+                    if (material.userData.blendMode) {
+                      texture.userData.blendMode = material.userData.blendMode;
+                    }
                     console.log(`Applied texture "${key}" to material ${index} by name matching with "${textureName}"`);
                     textureApplied = true;
                     break;
@@ -475,6 +595,12 @@ const NJViewer: React.FC<NJViewerProps> = ({
               <div style={{ fontSize: '10px', color: '#aaa', marginTop: '3px' }}>
                 {canvas.width}x{canvas.height}
               </div>
+              {/* Check if texture is applied to any material with blending */}
+              {isApplied && texture?.userData?.blendMode && (
+                <div style={{ fontSize: '9px', color: '#aaffaa', marginTop: '2px' }}>
+                  Blend: {texture.userData.blendMode}
+                </div>
+              )}
             </div>
           );
         })}

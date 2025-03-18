@@ -18,6 +18,8 @@ interface MaterialOptions {
   texId: number;
   blending: boolean;
   doubleSide: boolean;
+  srcAlpha?: number;  // Source alpha blending factor
+  dstAlpha?: number;  // Destination alpha blending factor
   diffuseColor?: { r: number; g: number; b: number; a: number };
   specularColor?: { r: number; g: number; b: number; a: number };
   ambientColor?: { r: number; g: number; b: number; a: number };
@@ -141,6 +143,8 @@ class NinjaModel {
     texId: -1,
     blending: false,
     doubleSide: false,
+    srcAlpha: 1, // ONE - default is ONE, ZERO (opaque rendering)
+    dstAlpha: 0, // ZERO
     diffuseColor: { r: 1, g: 1, b: 1, a: 1 },
   };
   private currentColor = { r: 1, g: 1, b: 1, a: 1 };
@@ -384,11 +388,15 @@ class NinjaModel {
         const dstAlpha = this.getBitMask(chunk.flag, [0, 1, 2]);
         const srcAlpha = this.getBitMask(chunk.flag, [3, 4, 5]);
 
-        if (srcAlpha === 4 && dstAlpha === 1) {
-          this.currentMaterial.blending = true;
-        } else {
-          this.currentMaterial.blending = false;
-        }
+        // Store the srcAlpha and dstAlpha values for proper blending setup
+        this.currentMaterial.srcAlpha = srcAlpha;
+        this.currentMaterial.dstAlpha = dstAlpha;
+
+        // If any non-standard blending is specified, enable blending
+        // This is updated from the simplified check to properly handle all blending modes
+        const isOpaque = srcAlpha === 1 && dstAlpha === 0; // ONE, ZERO = standard opaque
+        this.currentMaterial.blending = !isOpaque;
+        
         break;
 
       case 2:
@@ -437,11 +445,14 @@ class NinjaModel {
     const dstAlpha = this.getBitMask(chunk.flag, [0, 1, 2]);
     const srcAlpha = this.getBitMask(chunk.flag, [3, 4, 5]);
 
-    if (srcAlpha === 4 && dstAlpha === 1) {
-      this.currentMaterial.blending = true;
-    } else {
-      this.currentMaterial.blending = false;
-    }
+    // Store the srcAlpha and dstAlpha values for proper blending setup
+    this.currentMaterial.srcAlpha = srcAlpha;
+    this.currentMaterial.dstAlpha = dstAlpha;
+
+    // If any non-standard blending is specified, enable blending
+    // This is updated from the simplified check to properly handle all blending modes
+    const isOpaque = srcAlpha === 1 && dstAlpha === 0; // ONE, ZERO = standard opaque
+    this.currentMaterial.blending = !isOpaque;
 
     // Diffuse color
     if (this.isBitFlagSet(chunk.head, 0)) {
@@ -575,7 +586,9 @@ class NinjaModel {
       if (
         mat.texId === this.currentMaterial.texId &&
         mat.blending === this.currentMaterial.blending &&
-        mat.doubleSide === this.currentMaterial.doubleSide
+        mat.doubleSide === this.currentMaterial.doubleSide &&
+        mat.srcAlpha === this.currentMaterial.srcAlpha &&
+        mat.dstAlpha === this.currentMaterial.dstAlpha
       ) {
         // Check color properties if they exist
         const diffuseMatch = this.colorsEqual(mat.diffuseColor, this.currentMaterial.diffuseColor);
@@ -594,6 +607,8 @@ class NinjaModel {
       texId: this.currentMaterial.texId,
       blending: this.currentMaterial.blending,
       doubleSide: this.currentMaterial.doubleSide,
+      srcAlpha: this.currentMaterial.srcAlpha,
+      dstAlpha: this.currentMaterial.dstAlpha,
       diffuseColor: this.currentMaterial.diffuseColor ? { ...this.currentMaterial.diffuseColor } : undefined,
       specularColor: this.currentMaterial.specularColor ? { ...this.currentMaterial.specularColor } : undefined,
       ambientColor: this.currentMaterial.ambientColor ? { ...this.currentMaterial.ambientColor } : undefined,
