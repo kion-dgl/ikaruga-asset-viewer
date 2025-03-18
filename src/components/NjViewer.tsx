@@ -623,17 +623,25 @@ const NJViewer: React.FC<NJViewerProps> = ({
       </div>
       
       {/* Controls Panel */}
-      <div className="controls-panel" style={{ marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+      <div className="controls-panel" style={{ 
+        marginTop: '10px', 
+        width: width,
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center'
+      }}>
         <button 
           className="model-button"
           onClick={() => setWireframe(!wireframe)}
           style={{
-            padding: '5px 10px',
+            flex: 1,
+            padding: '8px 10px',
             backgroundColor: wireframe ? '#4CAF50' : '#555',
             color: 'white',
             border: 'none',
             borderRadius: '4px',
-            cursor: 'pointer'
+            cursor: 'pointer',
+            margin: '0 4px'
           }}
         >
           {wireframe ? 'Wireframe: ON' : 'Wireframe: OFF'}
@@ -644,13 +652,15 @@ const NJViewer: React.FC<NJViewerProps> = ({
           onClick={() => setShowSkeleton(!showSkeleton)}
           disabled={!(model instanceof THREE.SkinnedMesh)}
           style={{
-            padding: '5px 10px',
+            flex: 1,
+            padding: '8px 10px',
             backgroundColor: showSkeleton ? '#4CAF50' : '#555',
             color: 'white',
             border: 'none',
             borderRadius: '4px',
             cursor: model instanceof THREE.SkinnedMesh ? 'pointer' : 'not-allowed',
-            opacity: model instanceof THREE.SkinnedMesh ? 1 : 0.5
+            opacity: model instanceof THREE.SkinnedMesh ? 1 : 0.5,
+            margin: '0 4px'
           }}
         >
           {showSkeleton ? 'Skeleton: ON' : 'Skeleton: OFF'}
@@ -661,13 +671,15 @@ const NJViewer: React.FC<NJViewerProps> = ({
           onClick={exportToGLTF}
           disabled={!model}
           style={{
-            padding: '5px 10px',
+            flex: 1,
+            padding: '8px 10px',
             backgroundColor: model ? '#007BFF' : '#555',
             color: 'white',
             border: 'none',
             borderRadius: '4px',
             cursor: model ? 'pointer' : 'not-allowed',
-            opacity: model ? 1 : 0.5
+            opacity: model ? 1 : 0.5,
+            margin: '0 4px'
           }}
         >
           Download GLTF
@@ -678,13 +690,15 @@ const NJViewer: React.FC<NJViewerProps> = ({
           onClick={exportToGLB}
           disabled={!model}
           style={{
-            padding: '5px 10px',
+            flex: 1,
+            padding: '8px 10px',
             backgroundColor: model ? '#FF7F00' : '#555',
             color: 'white',
             border: 'none',
             borderRadius: '4px',
             cursor: model ? 'pointer' : 'not-allowed',
-            opacity: model ? 1 : 0.5
+            opacity: model ? 1 : 0.5,
+            margin: '0 4px'
           }}
         >
           Download GLB
