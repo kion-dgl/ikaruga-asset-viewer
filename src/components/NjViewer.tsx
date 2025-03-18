@@ -163,9 +163,40 @@ const NJViewer: React.FC<NJViewerProps> = ({
         const modelBuffer = await response.arrayBuffer();
         const parsedModel = parseNinjaModel(modelBuffer);
 
-        if (parsedModel.geometry) {
-          const mat = new THREE.MeshNormalMaterial();
-          const mesh = new THREE.Mesh(parsedModel.geometry, mat);
+        if (parsedModel.geometry && parsedModel.materials) {
+          // Create materials from the parsed model
+          const materials: THREE.Material[] = parsedModel.materials.map(materialOpts => {
+            // Basic material properties
+            const material = new THREE.MeshPhongMaterial({
+              side: materialOpts.doubleSide ? THREE.DoubleSide : THREE.FrontSide,
+              transparent: materialOpts.blending,
+            });
+            
+            // Set colors if available
+            if (materialOpts.diffuseColor) {
+              material.color.setRGB(
+                materialOpts.diffuseColor.r,
+                materialOpts.diffuseColor.g,
+                materialOpts.diffuseColor.b
+              );
+              material.opacity = materialOpts.diffuseColor.a;
+            }
+            
+            // Apply texture if available
+            if (materialOpts.texId >= 0 && textures.has(materialOpts.texId)) {
+              material.map = textures.get(materialOpts.texId);
+            }
+            
+            return material;
+          });
+          
+          // If no materials defined, create a default material
+          if (materials.length === 0) {
+            materials.push(new THREE.MeshNormalMaterial());
+          }
+          
+          // Create the mesh with the geometry and materials
+          const mesh = new THREE.Mesh(parsedModel.geometry, materials);
           setModel(mesh);
         }
       } catch (err) {

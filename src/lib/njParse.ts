@@ -18,6 +18,9 @@ interface MaterialOptions {
   texId: number;
   blending: boolean;
   doubleSide: boolean;
+  diffuseColor?: { r: number; g: number; b: number; a: number };
+  specularColor?: { r: number; g: number; b: number; a: number };
+  ambientColor?: { r: number; g: number; b: number; a: number };
 }
 
 interface Vertex {
@@ -38,6 +41,87 @@ interface Vertex {
   globalIndex?: number;
 }
 
+// Better organized vertex storage
+class VertexList {
+  private vertices: Vertex[] = [];
+  
+  addVertex(vertex: Vertex, index: number): void {
+    // Ensure array is large enough
+    while (this.vertices.length <= index) {
+      this.vertices.push(null);
+    }
+    this.vertices[index] = vertex;
+  }
+  
+  getVertex(index: number): Vertex | null {
+    if (index < 0 || index >= this.vertices.length) {
+      return null;
+    }
+    return this.vertices[index];
+  }
+  
+  setUV(index: number, u: number, v: number): void {
+    if (index >= 0 && index < this.vertices.length && this.vertices[index]) {
+      this.vertices[index].uv = { x: u, y: v };
+    }
+  }
+  
+  getAllVertices(): Vertex[] {
+    return this.vertices.filter(v => v !== null);
+  }
+  
+  getTriangleData(indices: number[]): {
+    positions: number[];
+    normals: number[];
+    colors: number[];
+    uvs: number[];
+    skinIndices: number[];
+    skinWeights: number[];
+  } {
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const colors: number[] = [];
+    const uvs: number[] = [];
+    const skinIndices: number[] = [];
+    const skinWeights: number[] = [];
+    
+    // Process each index and extract data
+    for (const idx of indices) {
+      const vertex = this.getVertex(idx);
+      if (!vertex) continue;
+      
+      // Add position
+      positions.push(vertex.position.x, vertex.position.y, vertex.position.z);
+      
+      // Add normal if exists
+      if (vertex.normal) {
+        normals.push(vertex.normal.x, vertex.normal.y, vertex.normal.z);
+      }
+      
+      // Add color if exists
+      if (vertex.color) {
+        const alpha = vertex.color.a < 0.3 ? 0.3 : vertex.color.a; // Ensure minimum alpha
+        colors.push(vertex.color.r, vertex.color.g, vertex.color.b, alpha);
+      }
+      
+      // Add UV if exists
+      if (vertex.uv) {
+        uvs.push(vertex.uv.x, vertex.uv.y);
+      } else {
+        uvs.push(0, 0); // Default UV
+      }
+      
+      // Add skinning data if exists
+      if (vertex.skinIndices && vertex.skinWeights) {
+        skinIndices.push(...vertex.skinIndices);
+        skinWeights.push(...vertex.skinWeights);
+      }
+    }
+    
+    return { positions, normals, colors, uvs, skinIndices, skinWeights };
+  }
+}
+
 class NinjaModel {
   private reader: ByteReader;
   private bones: Bone[];
@@ -50,13 +134,14 @@ class NinjaModel {
   private indices: number[] = [];
   private materialIndices: number[] = [];
   private materials: MaterialOptions[] = [];
-  private vertexStack: Vertex[] = [];
+  private vertexList: VertexList = new VertexList();
   private memStack: number[] = [];
   private currentBone: Bone | null = null;
   private currentMaterial: MaterialOptions = {
     texId: -1,
     blending: false,
     doubleSide: false,
+    diffuseColor: { r: 1, g: 1, b: 1, a: 1 },
   };
   private currentColor = { r: 1, g: 1, b: 1, a: 1 };
   private flipV: boolean = false;
@@ -360,19 +445,21 @@ class NinjaModel {
 
     // Diffuse color
     if (this.isBitFlagSet(chunk.head, 0)) {
-      this.currentColor = this.readColor();
+      const diffuse = this.readColor();
+      this.currentColor = diffuse; // Set current color for vertices
+      this.currentMaterial.diffuseColor = diffuse; // Store in material
     }
 
     // Specular
     if (this.isBitFlagSet(chunk.head, 1)) {
       const specular = this.readColor();
-      // Could store this for material later
+      this.currentMaterial.specularColor = specular;
     }
 
     // Ambient
     if (this.isBitFlagSet(chunk.head, 2)) {
       const ambient = this.readColor();
-      // Could store this for material later
+      this.currentMaterial.ambientColor = ambient;
     }
   }
 
@@ -442,17 +529,15 @@ class NinjaModel {
         const stackPos = indexOffset + offset;
 
         // Get existing weights if available
-        if (this.vertexStack[stackPos]) {
-          const prev = this.vertexStack[stackPos];
-          if (prev.skinIndices && prev.skinWeights) {
-            skinIndices[0] = prev.skinIndices[0] || 0;
-            skinIndices[1] = prev.skinIndices[1] || 0;
-            skinIndices[2] = prev.skinIndices[2] || 0;
+        const prev = this.vertexList.getVertex(stackPos);
+        if (prev && prev.skinIndices && prev.skinWeights) {
+          skinIndices[0] = prev.skinIndices[0] || 0;
+          skinIndices[1] = prev.skinIndices[1] || 0;
+          skinIndices[2] = prev.skinIndices[2] || 0;
 
-            skinWeights[0] = prev.skinWeights[0] || 0;
-            skinWeights[1] = prev.skinWeights[1] || 0;
-            skinWeights[2] = prev.skinWeights[2] || 0;
-          }
+          skinWeights[0] = prev.skinWeights[0] || 0;
+          skinWeights[1] = prev.skinWeights[1] || 0;
+          skinWeights[2] = prev.skinWeights[2] || 0;
         }
 
         // Set weights based on flag
@@ -474,9 +559,10 @@ class NinjaModel {
 
       vertex.skinIndices = skinIndices;
       vertex.skinWeights = skinWeights;
-      vertex.globalIndex = this.vertexStack.length;
+      vertex.globalIndex = stackIndex;
 
-      this.vertexStack[stackIndex] = vertex;
+      // Add to the improved vertex list
+      this.vertexList.addVertex(vertex, stackIndex);
     }
   }
 
@@ -484,24 +570,55 @@ class NinjaModel {
     // Check if material already exists
     for (let i = 0; i < this.materials.length; i++) {
       const mat = this.materials[i];
+      
+      // Check basic properties
       if (
         mat.texId === this.currentMaterial.texId &&
         mat.blending === this.currentMaterial.blending &&
         mat.doubleSide === this.currentMaterial.doubleSide
       ) {
-        return i;
+        // Check color properties if they exist
+        const diffuseMatch = this.colorsEqual(mat.diffuseColor, this.currentMaterial.diffuseColor);
+        const specularMatch = this.colorsEqual(mat.specularColor, this.currentMaterial.specularColor);
+        const ambientMatch = this.colorsEqual(mat.ambientColor, this.currentMaterial.ambientColor);
+        
+        if (diffuseMatch && specularMatch && ambientMatch) {
+          return i; // Reuse existing material
+        }
       }
     }
 
-    // If not, create a new material
+    // If not, create a new material with all current properties
     const materialIndex = this.materials.length;
     this.materials.push({
       texId: this.currentMaterial.texId,
       blending: this.currentMaterial.blending,
       doubleSide: this.currentMaterial.doubleSide,
+      diffuseColor: this.currentMaterial.diffuseColor ? { ...this.currentMaterial.diffuseColor } : undefined,
+      specularColor: this.currentMaterial.specularColor ? { ...this.currentMaterial.specularColor } : undefined,
+      ambientColor: this.currentMaterial.ambientColor ? { ...this.currentMaterial.ambientColor } : undefined,
     });
 
     return materialIndex;
+  }
+  
+  private colorsEqual(
+    color1?: { r: number; g: number; b: number; a: number }, 
+    color2?: { r: number; g: number; b: number; a: number }
+  ): boolean {
+    // If both are undefined or null, they're equal
+    if (!color1 && !color2) return true;
+    // If only one is undefined or null, they're not equal
+    if (!color1 || !color2) return false;
+    
+    // Compare values with a small epsilon for float comparison
+    const epsilon = 0.00001;
+    return (
+      Math.abs(color1.r - color2.r) < epsilon &&
+      Math.abs(color1.g - color2.g) < epsilon &&
+      Math.abs(color1.b - color2.b) < epsilon &&
+      Math.abs(color1.a - color2.a) < epsilon
+    );
   }
 
   readStripChunk(chunk: { head: number; flag: number }) {
@@ -539,12 +656,13 @@ class NinjaModel {
       for (let vertIdx = 0; vertIdx < stripLength; vertIdx++) {
         const stackIndex = this.reader.readUInt16();
 
-        if (!this.vertexStack[stackIndex]) {
-          throw new Error(`Vertex ${stackIndex} not found in vertex stack`);
+        const vertex = this.vertexList.getVertex(stackIndex);
+        if (!vertex) {
+          throw new Error(`Vertex ${stackIndex} not found in vertex list`);
         }
 
         strip[vertIdx] = {
-          vertex: this.vertexStack[stackIndex],
+          vertex: vertex,
           uv: { x: 0, y: 0 },
         };
 
@@ -555,12 +673,16 @@ class NinjaModel {
             ? this.reader.readInt16() / 255
             : 1 - this.reader.readInt16() / 255;
           strip[vertIdx].uv = { x: u, y: v };
+          // Store UV in the actual vertex for better organization
+          this.vertexList.setUV(stackIndex, u, v);
         } else if (chunk.head === 0x42) {
           const u = this.reader.readInt16() / 1023;
           const v = this.flipV
             ? this.reader.readInt16() / 1023
             : 1 - this.reader.readInt16() / 1023;
           strip[vertIdx].uv = { x: u, y: v };
+          // Store UV in the actual vertex for better organization
+          this.vertexList.setUV(stackIndex, u, v);
         }
 
         // Skip user offset data
@@ -571,100 +693,35 @@ class NinjaModel {
 
       // Convert strip to triangles
       for (let i = 0; i < stripLength - 2; i++) {
-        let a, b, c;
-
+        // Determine vertex order based on clockwise flag and index parity
+        const indices = [];
         if ((clockwise && !(i % 2)) || (!clockwise && i % 2)) {
-          a = strip[i + 0];
-          b = strip[i + 2];
-          c = strip[i + 1];
+          indices.push(strip[i].vertex.globalIndex, strip[i+2].vertex.globalIndex, strip[i+1].vertex.globalIndex);
         } else {
-          a = strip[i + 0];
-          b = strip[i + 1];
-          c = strip[i + 2];
+          indices.push(strip[i].vertex.globalIndex, strip[i+1].vertex.globalIndex, strip[i+2].vertex.globalIndex);
         }
-
-        // Skip degenerate triangles
-        if (!a.vertex || !b.vertex || !c.vertex) continue;
-
-        // Store material index
+        
+        // Skip if any vertex is missing
+        if (indices.some(idx => idx === undefined)) continue;
+        
+        // Store material index for this triangle
         this.materialIndices.push(materialIndex);
-
-        // Add vertices
-        this.vertices.push(
-          a.vertex.position.x,
-          a.vertex.position.y,
-          a.vertex.position.z,
-          b.vertex.position.x,
-          b.vertex.position.y,
-          b.vertex.position.z,
-          c.vertex.position.x,
-          c.vertex.position.y,
-          c.vertex.position.z,
-        );
-
-        // Add normals if present
-        if (a.vertex.normal && b.vertex.normal && c.vertex.normal) {
-          this.normals.push(
-            a.vertex.normal.x,
-            a.vertex.normal.y,
-            a.vertex.normal.z,
-            b.vertex.normal.x,
-            b.vertex.normal.y,
-            b.vertex.normal.z,
-            c.vertex.normal.x,
-            c.vertex.normal.y,
-            c.vertex.normal.z,
-          );
+        
+        // Process vertex data for this triangle
+        const triangleData = this.vertexList.getTriangleData(indices);
+        
+        // Add all data to the respective arrays
+        this.vertices.push(...triangleData.positions);
+        if (triangleData.normals.length > 0) {
+          this.normals.push(...triangleData.normals);
         }
-
-        // Add colors
-        const aColor = a.vertex.color || this.currentColor;
-        const bColor = b.vertex.color || this.currentColor;
-        const cColor = c.vertex.color || this.currentColor;
-
-        // Make sure alpha is at least 0.3
-        const aAlpha = aColor.a < 0.3 ? 0.3 : aColor.a;
-        const bAlpha = bColor.a < 0.3 ? 0.3 : bColor.a;
-        const cAlpha = cColor.a < 0.3 ? 0.3 : cColor.a;
-
-        this.colors.push(
-          aColor.r,
-          aColor.g,
-          aColor.b,
-          aAlpha,
-          bColor.r,
-          bColor.g,
-          bColor.b,
-          bAlpha,
-          cColor.r,
-          cColor.g,
-          cColor.b,
-          cAlpha,
-        );
-
-        // Add UVs
-        this.uvs.push(a.uv.x, a.uv.y, b.uv.x, b.uv.y, c.uv.x, c.uv.y);
-
-        // Add skin indices and weights
-        if (
-          a.vertex.skinIndices &&
-          b.vertex.skinIndices &&
-          c.vertex.skinIndices &&
-          a.vertex.skinWeights &&
-          b.vertex.skinWeights &&
-          c.vertex.skinWeights
-        ) {
-          this.skinIndices.push(
-            ...a.vertex.skinIndices,
-            ...b.vertex.skinIndices,
-            ...c.vertex.skinIndices,
-          );
-
-          this.skinWeights.push(
-            ...a.vertex.skinWeights,
-            ...b.vertex.skinWeights,
-            ...c.vertex.skinWeights,
-          );
+        this.colors.push(...triangleData.colors);
+        this.uvs.push(...triangleData.uvs);
+        
+        // Add skinning data if available
+        if (triangleData.skinIndices.length > 0 && triangleData.skinWeights.length > 0) {
+          this.skinIndices.push(...triangleData.skinIndices);
+          this.skinWeights.push(...triangleData.skinWeights);
         }
       }
     }
@@ -721,7 +778,22 @@ class NinjaModel {
       );
     }
 
+    // Add a groups property to associate faces with materials
+    const triangleCount = this.vertices.length / 9; // Each triangle has 3 vertices with x,y,z
+    for (let i = 0; i < triangleCount; i++) {
+      const materialIndex = this.materialIndices[i] || 0;
+      geometry.addGroup(i * 3, 3, materialIndex);
+    }
+
     return geometry;
+  }
+
+  getMaterials(): MaterialOptions[] {
+    return this.materials;
+  }
+  
+  getMaterialIndices(): number[] {
+    return this.materialIndices;
   }
 }
 
@@ -750,6 +822,8 @@ const readNjtl = (reader: ByteReader): string[] => {
 interface ParsedNinjaModel {
   geometry?: BufferGeometry;
   textureNames?: string[];
+  materials?: MaterialOptions[];
+  materialIndices?: number[]; // Material index for each triangle/face
 }
 
 const parseNinjaModel = (buffer: ArrayBuffer): ParsedNinjaModel => {
@@ -772,6 +846,8 @@ const parseNinjaModel = (buffer: ArrayBuffer): ParsedNinjaModel => {
       const model = new NinjaModel(chunk);
       model.readBone();
       result.geometry = model.getGeometry();
+      result.materials = model.getMaterials();
+      result.materialIndices = model.getMaterialIndices();
     } else if (magic === "POF0") {
       continue;
     } else {
