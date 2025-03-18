@@ -185,21 +185,19 @@ class NinjaModel {
     }
 
     // Process child and sibling bones if needed
-    // if (childOfs) {
-    //   const currentPos = this.reader.tell();
-    //   this.reader.seek(childOfs);
-    //   this.readBone(bone);
-    //   this.reader.seek(currentPos);
-    // }
+    if (childOfs) {
+      const currentPos = this.reader.tell();
+      this.reader.seek(childOfs);
+      this.readBone(bone);
+      this.reader.seek(currentPos);
+    }
 
-    // if (siblingOfs) {
-    //   const currentPos = this.reader.tell();
-    //   this.reader.seek(siblingOfs);
-    //   this.readBone(parentBone);
-    //   this.reader.seek(currentPos);
-    // }
-
-    return bone;
+    if (siblingOfs) {
+      const currentPos = this.reader.tell();
+      this.reader.seek(siblingOfs);
+      this.readBone(parentBone);
+      this.reader.seek(currentPos);
+    }
   }
 
   readChunk() {
@@ -675,7 +673,7 @@ class NinjaModel {
     console.log("Strip end: ", this.reader.tellf());
   }
 
-  createMesh(): SkinnedMesh {
+  getGeometry(): BufferGeometry {
     // Create geometry
     const geometry = new BufferGeometry();
 
@@ -723,55 +721,9 @@ class NinjaModel {
       );
     }
 
-    // Create materials
-    const materials: Material[] = this.materials.map((matOptions) => {
-      const material = new MeshBasicMaterial({
-        map: null, // Would need to load texture based on matOptions.texId
-        transparent: matOptions.blending,
-        side: matOptions.doubleSide ? DoubleSide : undefined,
-        vertexColors: this.colors.length > 0,
-      });
-
-      return material;
-    });
-
-    // If no materials were created, add a default one
-    if (materials.length === 0) {
-      materials.push(
-        new MeshBasicMaterial({
-          vertexColors: this.colors.length > 0,
-          wireframe: true,
-        }),
-      );
-    }
-
-    // Create the skinned mesh
-    const mesh = new SkinnedMesh(
-      geometry,
-      materials.length === 1 ? materials[0] : materials,
-    );
-
-    // Add the skeleton
-    if (this.bones.length > 0) {
-      const rootBone = this.bones[0];
-      mesh.add(rootBone);
-
-      // Set the bind matrix for each bone
-      this.bones.forEach((bone) => {
-        const invMatrix = new Matrix4().copy(bone.matrixWorld).invert();
-        bone.userData.invBindMatrix = invMatrix;
-      });
-    }
-
-    return mesh;
+    return geometry;
   }
 }
-
-const readNjcm = (reader: ByteReader) => {
-  const model = new NinjaModel(reader);
-  model.readBone();
-  return model;
-};
 
 const readNjtl = (reader: ByteReader): string[] => {
   const ref = reader.tell();
@@ -796,7 +748,7 @@ const readNjtl = (reader: ByteReader): string[] => {
 };
 
 interface ParsedNinjaModel {
-  model?: NinjaModel;
+  geometry?: BufferGeometry;
   textureNames?: string[];
 }
 
@@ -817,7 +769,9 @@ const parseNinjaModel = (buffer: ArrayBuffer): ParsedNinjaModel => {
     if (magic === "NJTL") {
       result.textureNames = readNjtl(chunk);
     } else if (magic === "NJCM") {
-      result.model = readNjcm(chunk);
+      const model = new NinjaModel(chunk);
+      model.readBone();
+      result.geometry = model.getGeometry();
     } else if (magic === "POF0") {
       continue;
     } else {

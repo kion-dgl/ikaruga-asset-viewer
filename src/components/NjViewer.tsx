@@ -168,35 +168,11 @@ const NJViewer: React.FC<NJViewerProps> = ({
         const modelBuffer = await response.arrayBuffer();
         const parsedModel = parseNinjaModel(modelBuffer);
 
-        // if (parsedModel.model) {
-        //   // Create a mesh from the parsed model
-        //   const mesh = parsedModel.model.createMesh();
-
-        //   // Apply textures if available
-        //   if (mesh.material instanceof THREE.MeshBasicMaterial) {
-        //     // Single material
-        //     if (textures.size > 0 && mesh.material.map === null) {
-        //       mesh.material.map = textures.get(0) || null;
-        //       mesh.material.needsUpdate = true;
-        //     }
-        //   } else if (Array.isArray(mesh.material)) {
-        //     // Multiple materials
-        //     for (let i = 0; i < mesh.material.length; i++) {
-        //       const mat = mesh.material[i];
-        //       if (mat instanceof THREE.MeshBasicMaterial) {
-        //         // Find texture based on material's texId if available
-        //         if (textures.size > 0 && mat.map === null) {
-        //           mat.map = textures.get(i) || null;
-        //           mat.needsUpdate = true;
-        //         }
-        //       }
-        //     }
-        //   }
-
-        //   setModel(mesh);
-        // } else {
-        //   throw new Error("Failed to parse model data");
-        // }
+        if (parsedModel.geometry) {
+          const mat = new THREE.MeshNormalMaterial();
+          const mesh = new THREE.Mesh(parsedModel.geometry, mat);
+          setModel(mesh);
+        }
       } catch (err) {
         console.error("Error loading or parsing NJ model:", err);
         setError(
