@@ -176,28 +176,28 @@ class NinjaModel {
         this.readChunk();
       }
 
-      // if (stripOfs) {
-      //   this.reader.seek(stripOfs);
-      //   this.readChunk();
-      // }
+      if (stripOfs) {
+        this.reader.seek(stripOfs);
+        this.readChunk();
+      }
 
       this.reader.seek(currentPos);
     }
 
     // Process child and sibling bones if needed
-    if (childOfs) {
-      const currentPos = this.reader.tell();
-      this.reader.seek(childOfs);
-      this.readBone(bone);
-      this.reader.seek(currentPos);
-    }
+    // if (childOfs) {
+    //   const currentPos = this.reader.tell();
+    //   this.reader.seek(childOfs);
+    //   this.readBone(bone);
+    //   this.reader.seek(currentPos);
+    // }
 
-    if (siblingOfs) {
-      const currentPos = this.reader.tell();
-      this.reader.seek(siblingOfs);
-      this.readBone(parentBone);
-      this.reader.seek(currentPos);
-    }
+    // if (siblingOfs) {
+    //   const currentPos = this.reader.tell();
+    //   this.reader.seek(siblingOfs);
+    //   this.readBone(parentBone);
+    //   this.reader.seek(currentPos);
+    // }
 
     return bone;
   }
@@ -227,18 +227,26 @@ class NinjaModel {
 
     let chunk;
 
+    console.log("READING CHUNK AT 0x%s", this.reader.tellf());
+
     do {
       const head = this.reader.readUInt8();
       const flag = this.reader.readUInt8();
       chunk = { head, flag };
 
+      if (chunk.head == NJD_ENDOFF) {
+        console.log("End of Chunks!!!");
+        break;
+      }
       // Invalid Chunk
       if (chunk.head > NJD_STRIPOFF + 11) {
+        console.log("INVALID CHUNK!!!???? T_T");
         continue;
       }
 
       // Strip Chunk
       if (chunk.head >= NJD_STRIPOFF) {
+        console.log("READING A STRIP CHUNK!!!");
         this.readStripChunk(chunk);
         continue;
       }
@@ -257,18 +265,21 @@ class NinjaModel {
 
       // Material Chunk
       if (chunk.head >= NJD_MATOFF) {
+        console.log("MATERIAL CHUNK!!!");
         this.readMaterialChunk(chunk);
         continue;
       }
 
       // Tiny Chunk
       if (chunk.head >= NJD_TINYOFF) {
+        console.log("TINY CHUNK!!!!");
         this.readTinyChunk(chunk);
         continue;
       }
 
       // Bits Chunk
       if (chunk.head >= NJD_BITSOFF) {
+        console.log("BITS CHUNK!!!!");
         this.readBitsChunk(chunk);
         continue;
       }
@@ -498,21 +509,32 @@ class NinjaModel {
   readStripChunk(chunk: { head: number; flag: number }) {
     const length = this.reader.readUInt16();
 
+    console.log("Strip start: ", this.reader.tellf());
+    console.log(
+      "Expected end: 0x%s",
+      (this.reader.tell() + length * 2).toString(16),
+    );
+    const expectedEnd = this.reader.tell() + length * 2;
     // Read strip info
     const stripInfo = this.reader.readUInt16();
     const stripCount = stripInfo & 0x3fff;
-    const userOffset = this.getBitMask(stripInfo, [14, 15]);
+    const userOffset = stripInfo >> 14;
+    console.log("USER OFFSET: ", userOffset);
 
     this.currentMaterial.doubleSide = this.isBitFlagSet(chunk.flag, 4);
     const materialIndex = this.getMaterialIndex();
 
+    console.log("Number strips: ", stripCount);
     // Process strips
     for (let stripIdx = 0; stripIdx < stripCount; stripIdx++) {
       // Read strip length
+
+      console.log("Reading strip at: ", this.reader.tellf());
       const rawLength = this.reader.readInt16();
       const clockwise = rawLength < 0;
       const stripLength = Math.abs(rawLength);
 
+      console.log("Strip length: %s", rawLength);
       const strip = new Array(stripLength);
 
       // Read each vertex in the strip
@@ -544,9 +566,9 @@ class NinjaModel {
         }
 
         // Skip user offset data
-        if (userOffset && vertIdx > 1) {
-          this.reader.seekRel(userOffset * 2);
-        }
+        // if (userOffset && vertIdx > 1) {
+        //   this.reader.seekRel(userOffset * 2);
+        // }
       }
 
       // Convert strip to triangles
@@ -648,6 +670,9 @@ class NinjaModel {
         }
       }
     }
+
+    this.reader.seek(expectedEnd);
+    console.log("Strip end: ", this.reader.tellf());
   }
 
   createMesh(): SkinnedMesh {
