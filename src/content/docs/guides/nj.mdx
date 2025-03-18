@@ -25,9 +25,9 @@ Files typically have the `.nj` extension (model data) or may come with paired `.
 
 Below is an example of a 3D model viewer rendering a Ninja format model:
 
-<NJViewer 
+<NJViewer
   client:load
-  modelPath="OBJ/COCK.NJ" 
+  modelPath="OBJ/COCK.NJ"
   texturePaths={["OBJ/COCK.PVM"]}
   width={600}
   height={400}
@@ -42,6 +42,96 @@ The NJ format uses a chunk-based structure with different sections indicated by 
 - `NJTL` - Texture list
 - `NJCM` - Model data (vertex, polygon, material)
 - `NMDM` - Animation data
+
+### NJTL (Texture List)
+
+The NJTL chunk contains a list of texture names referenced by the model. It uses a pointer-based structure to efficiently store and access texture references.
+
+#### Memory Layout
+
+```
+NJTL Chunk Structure:
++-------------------------+
+| "NJTL" Magic (4 bytes)  |
++-------------------------+
+| Chunk Size (4 bytes)    |
++-------------------------+
+| Pointer to tex list     | ---+
++-------------------------+    |
+| Number of textures      |    |
++-------------------------+    |
+|         ...             |    |
++-------------------------+    |
+|                         |    |
+|                         |    |
++-------------------------+    |
+|                         | <--+
+| Texture List:           |
+|   - Name Pointer 1      | ---> "texture1.pvr"
+|   - Attributes (8 bytes)|
+|   - Name Pointer 2      | ---> "texture2.pvr"
+|   - Attributes (8 bytes)|
+|   ...                   |
++-------------------------+
+| Texture Names:          |
+|   "texture1.pvr\0"      |
+|   "texture2.pvr\0"      |
+|   ...                   |
++-------------------------+
+```
+
+The texture list is read in a multi-step process:
+1. Store the current position as a reference point
+2. Read the pointer to the texture list and number of textures
+3. Seek to the texture list (pointer + reference position)
+4. Read all texture name pointers (and skip additional data)
+5. For each pointer, seek to the actual texture name and read the string
+
+Here's the actual implementation code that parses the NJTL section:
+
+```typescript
+const readNjtl = (reader: ByteReader): string[] => {
+  // Store current position as reference point
+  const ref = reader.tell();
+
+  // Read pointer to texture list and count
+  const ptr = reader.readUInt32();
+  const count = reader.readUInt32();
+
+  // Seek to texture list
+  reader.seek(ptr + ref);
+
+  // Read all texture name pointers
+  const textureNamePointers: number[] = [];
+  for (let i = 0; i < count; i++) {
+    textureNamePointers.push(reader.readUInt32());
+    reader.seekRel(8); // Skip additional data (8 bytes)
+  }
+
+  // Read actual texture names
+  const textureNames: string[] = [];
+  textureNamePointers.forEach((ptr) => {
+    reader.seek(ref + ptr);
+    const name = reader.readString();
+    textureNames.push(name);
+  });
+
+  return textureNames;
+};
+```
+
+This approach allows the model to reference textures stored in separate files. The returned texture names are typically used to locate and load the corresponding textures needed for rendering the model.
+
+#### Texture Names in Ikaruga
+
+In Ikaruga, the texture names stored in NJTL chunks do not include file extensions (like .PVR). These names reference textures that are typically stored within PVM files (which are collections of PVR textures). For example, a texture name like "COCK" would reference a texture within the corresponding PVM file (e.g., COCK.PVM).
+
+The NJ model renderer needs to:
+1. Extract the texture name from the NJTL chunk
+2. Locate the corresponding texture within the PVM collection
+3. Apply the texture to the appropriate mesh parts
+
+This naming convention allows the same model to work with different texture formats while maintaining the same internal references.
 
 ### Bone Hierarchy
 
@@ -67,26 +157,6 @@ Material definitions include:
 - Diffuse, specular, and ambient colors
 - Alpha/transparency settings
 - Various render flags
-
-## Examples
-
-Here are some other models you can explore:
-
-<NJViewer 
-  client:load
-  modelPath="OBJ/FISH.NJ" 
-  texturePaths={["OBJ/FISH.PVM"]}
-  width={600}
-  height={400}
-/>
-
-<NJViewer 
-  client:load
-  modelPath="OBJ/SHIP.NJ" 
-  texturePaths={["OBJ/SHIP.PVM"]}
-  width={600}
-  height={400}
-/>
 
 ## Technical Implementation
 
