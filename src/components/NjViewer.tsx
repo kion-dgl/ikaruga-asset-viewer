@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
-import { OrbitControls, Stats } from "@react-three/drei";
+import { OrbitControls } from "@react-three/drei";
 import * as THREE from "three";
 import {
   SkinnedMesh,
@@ -68,11 +68,6 @@ const Model: React.FC<{ mesh: THREE.SkinnedMesh | THREE.Mesh }> = ({
     // Update animation mixer
     if (mixer.current) {
       mixer.current.update(clock.current.getDelta());
-    }
-
-    // Slowly rotate the model
-    if (groupRef.current) {
-      groupRef.current.rotation.y += 0.005;
     }
   });
 
@@ -225,7 +220,6 @@ const NJViewer: React.FC<NJViewerProps> = ({
         <OrbitControls />
         <gridHelper args={[10, 10]} />
         <axesHelper args={[5]} />
-        <Stats />
       </Canvas>
     </div>
   );
