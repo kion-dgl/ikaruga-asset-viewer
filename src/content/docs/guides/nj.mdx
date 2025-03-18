@@ -133,6 +133,220 @@ The NJ model renderer needs to:
 
 This naming convention allows the same model to work with different texture formats while maintaining the same internal references.
 
+### NJCM (Ninja Chunk Model)
+
+The NJCM chunk contains the actual model data, including bones, vertices, and rendering information. It uses a complex hierarchical structure that starts with bones and branches out to include mesh data.
+
+#### Bone Structure
+
+Each bone in the model is defined with:
+
+```
+Bone Structure:
+- Flags (32-bit) - Controls bone properties and interpretation
+- Chunk Offset (32-bit) - Pointer to mesh data for this bone (if any)
+- Position (3x float) - x, y, z coordinates
+- Rotation (3x int32) - Euler angles (mode determined by flags)
+- Scale (3x float) - x, y, z scaling factors
+- Child Offset (32-bit) - Pointer to first child bone (if any)
+- Sibling Offset (32-bit) - Pointer to next sibling bone (if any)
+```
+
+The bone flags determine:
+- Whether to ignore position, rotation, or scale
+- Rotation order (XYZ or ZXY)
+- Other bone-specific properties
+
+The parsing process is recursive, following child and sibling pointers to build the complete skeleton hierarchy. Here's a simplified example of the bone reading code:
+
+```typescript
+function readBone(parentBone?: Bone) {
+  // Read bone structure
+  const boneOffset = reader.tell();
+  const flags = reader.readUInt32();
+  const chunkOfs = reader.readUInt32();
+  const position = readVector3();
+  const rotation = readRotation(isBitFlagSet(flags, 5)); // Bit 5 determines rotation order
+  const scale = readVector3();
+  const childOfs = reader.readUInt32();
+  const siblingOfs = reader.readUInt32();
+
+  // Create new bone
+  const bone = new Bone();
+  
+  // Apply transformations if not ignored in flags
+  if (!isBitFlagSet(flags, 0)) bone.position.copy(position);
+  if (!isBitFlagSet(flags, 1)) bone.rotation.copy(rotation);
+  if (!isBitFlagSet(flags, 2)) bone.scale.copy(scale);
+  
+  // Add to parent if it exists
+  if (parentBone) parentBone.add(bone);
+  
+  // Process mesh data if present
+  if (chunkOfs) {
+    reader.seek(chunkOfs);
+    readMeshData();
+  }
+  
+  // Process child and sibling bones recursively
+  if (childOfs) {
+    reader.seek(childOfs);
+    readBone(bone);
+  }
+  
+  if (siblingOfs) {
+    reader.seek(siblingOfs);
+    readBone(parentBone);
+  }
+}
+```
+
+#### Mesh Data
+
+When a bone has associated mesh data (Chunk Offset is non-zero), the data includes:
+
+```
+Mesh Data Header:
+- Vertex List Offset (32-bit) - Pointer to vertex data
+- Strip List Offset (32-bit) - Pointer to strip/triangle data
+- Center Position (3x float) - Center of the mesh section
+- Radius (float) - Bounding sphere radius (for collision detection)
+```
+
+#### Vertex List
+
+The vertex list contains all vertex data for a specific bone's mesh:
+
+```
+Vertex List Header:
+- Header Byte - Determines vertex format (with/without normals, colors, etc.)
+- Flag Byte - Additional vertex properties
+- Length (16-bit) - Number of vertices
+- Index Offset (16-bit) - Starting index in the vertex buffer
+- Vertex Count (16-bit) - Number of vertices in this list
+- Vertex Data - Array of vertices with positions, normals, etc. based on header
+```
+
+Each vertex can include:
+- Position (3x float) - x, y, z coordinates
+- Normal (3x float) - x, y, z normal vector (if specified in header)
+- Color (4x byte) - RGBA values (if specified in header)
+- Skinning weights (for animated models with partial bone weights)
+
+#### Chunk System for Materials and Triangles
+
+After the vertex data, strip/triangle data is organized into a series of "chunks" that define how to render the mesh:
+
+1. **Material Chunks** (IDs 0x10-0x17) - Define material properties:
+   - Diffuse color (RGBA)
+   - Specular color (RGBA)
+   - Ambient color (RGBA)
+   - Alpha blending settings
+
+2. **Tiny Chunks** (IDs 0x08-0x0F) - Define texture properties:
+   - Texture ID (reference to the NJTL list)
+   - Texture addressing modes (clamp/repeat)
+   - Texture filtering modes
+   - Flip U/V flags
+
+3. **Strip Chunks** (IDs 0x40-0x4B) - Define triangle strips:
+   - Strip count and properties
+   - For each strip:
+     - Strip length and orientation
+     - Vertex indices (referencing the vertex list)
+     - UV coordinates for each vertex
+
+Chunks are processed sequentially until an end chunk (0xFF) is encountered. The system allows for changing textures and materials multiple times within a single mesh.
+
+Here's a simplified example of how the chunk processing system works:
+
+```typescript
+function readChunk() {
+  const NJD_NULLOFF = 0x00;
+  const NJD_BITSOFF = 0x01;
+  const NJD_TINYOFF = 0x08;
+  const NJD_MATOFF = 0x10;
+  const NJD_VERTOFF = 0x20;
+  const NJD_STRIPOFF = 0x40;
+  const NJD_ENDOFF = 0xff;
+  
+  // Initialize default material state
+  let currentMaterial = { texId: -1, blending: false, doubleSide: false };
+  let currentColor = { r: 1, g: 1, b: 1, a: 1 };
+  
+  do {
+    // Read chunk header
+    const head = reader.readUInt8();
+    const flag = reader.readUInt8();
+    
+    if (head === NJD_ENDOFF) {
+      // End of chunk section
+      break;
+    }
+    
+    // Process different chunk types
+    if (head >= NJD_STRIPOFF) {
+      // Strip chunk (triangle data)
+      readStripChunk(head, flag);
+    } else if (head >= NJD_VERTOFF) {
+      // Vertex chunk (already processed separately)
+      console.log("Vertex chunk in strip section?");
+    } else if (head >= NJD_MATOFF) {
+      // Material chunk (colors)
+      readMaterialChunk(head, flag);
+    } else if (head >= NJD_TINYOFF) {
+      // Tiny chunk (texture settings)
+      readTinyChunk(head, flag);
+    } else if (head >= NJD_BITSOFF) {
+      // Bits chunk (blending modes)
+      readBitsChunk(head, flag);
+    }
+  } while (true);
+}
+```
+
+This chunk-based approach allows for efficient storage and rendering of complex models with varying material properties throughout different parts of the mesh.
+
+#### Parsing Flow
+
+The NJCM parsing process follows this general flow:
+
+1. Read the root bone
+2. If the bone has mesh data:
+   - Read the vertex list and store vertices
+   - Process chunks for materials and triangles
+3. Recursively process child bones (if any)
+4. Process sibling bones (if any)
+5. Continue until all bones are processed
+
+#### NJCM Structure Visualization
+
+```
+NJCM
+└── Root Bone
+    ├── Mesh Data (if present)
+    │   ├── Vertex List
+    │   │   ├── Vertex 1 (position, normal, etc.)
+    │   │   ├── Vertex 2
+    │   │   └── ...
+    │   └── Chunk Data
+    │       ├── Material Chunk (diffuse, specular, ambient)
+    │       ├── Tiny Chunk (texture ID)
+    │       ├── Strip Chunk (triangle strips with UVs)
+    │       ├── Tiny Chunk (different texture ID)
+    │       ├── Strip Chunk (another set of triangles)
+    │       └── End Chunk
+    ├── Child Bone 1
+    │   ├── Mesh Data
+    │   └── ...
+    ├── Child Bone 2
+    │   └── ...
+    └── Sibling Bone
+        └── ...
+```
+
+This hierarchical structure allows for complex models with articulated parts and different materials/textures for each section. In Ikaruga, this is used to organize enemies and player ships into logical components that can be animated independently.
+
 ### Bone Hierarchy
 
 Models can contain a hierarchical bone structure for animation:
