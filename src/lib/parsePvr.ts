@@ -43,10 +43,13 @@ export interface PVRHeader {
  * @param externalPalette Optional external palette data from a PVP file
  */
 // Interface for PVM entries (textures inside a PVM file)
-export interface PVMEntry {
+interface PVMEntry {
   name: string;
   data: ArrayBuffer;
 }
+
+// Export the interface so it can be imported elsewhere
+export type { PVMEntry };
 
 // Parse a PVM file and extract contained PVR textures
 export const parsePvm = async (

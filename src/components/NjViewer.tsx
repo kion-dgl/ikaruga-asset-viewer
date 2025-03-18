@@ -10,7 +10,8 @@ import {
   AnimationClip,
   VectorKeyframeTrack,
 } from "three";
-import { parsePvr, parsePvm, PVMEntry } from "../lib/parsePvr";
+import { parsePvr, parsePvm } from "../lib/parsePvr";
+import type { PVMEntry } from "../lib/parsePvr";
 import { parseNinjaModel, NinjaModel } from "../lib/njParse";
 
 interface NJViewerProps {
