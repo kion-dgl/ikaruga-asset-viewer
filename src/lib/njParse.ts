@@ -836,6 +836,10 @@ class NinjaModel {
   getMaterialIndices(): number[] {
     return this.materialIndices;
   }
+  
+  getBones(): Bone[] {
+    return this.bones;
+  }
 }
 
 const readNjtl = (reader: ByteReader): string[] => {
@@ -865,6 +869,7 @@ interface ParsedNinjaModel {
   textureNames?: string[];
   materials?: MaterialOptions[];
   materialIndices?: number[]; // Material index for each triangle/face
+  bones?: Bone[]; // Skeleton bones array
 }
 
 const parseNinjaModel = (buffer: ArrayBuffer): ParsedNinjaModel => {
@@ -889,6 +894,7 @@ const parseNinjaModel = (buffer: ArrayBuffer): ParsedNinjaModel => {
       result.geometry = model.getGeometry();
       result.materials = model.getMaterials();
       result.materialIndices = model.getMaterialIndices();
+      result.bones = model.getBones();
     } else if (magic === "POF0") {
       continue;
     } else {

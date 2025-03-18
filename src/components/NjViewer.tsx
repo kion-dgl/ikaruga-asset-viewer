@@ -557,9 +557,26 @@ const NJViewer: React.FC<NJViewerProps> = ({
               console.log("No material groups found in geometry");
             }
 
-            // Create the mesh with the geometry and materials
-            const mesh = new THREE.Mesh(parsedModel.geometry, materials);
-            console.log("Created mesh with", materials.length, "materials");
+            // Check if we have skinning data in the geometry
+            const hasSkinning = parsedModel.geometry.attributes.skinIndex !== undefined && 
+                                parsedModel.geometry.attributes.skinWeight !== undefined;
+            
+            let mesh;
+            
+            if (hasSkinning && parsedModel.bones && parsedModel.bones.length > 0) {
+              // Create a skinned mesh with bones
+              mesh = new THREE.SkinnedMesh(parsedModel.geometry, materials);
+              
+              // Create skeleton and attach it to the mesh
+              const skeleton = new THREE.Skeleton(parsedModel.bones);
+              mesh.bind(skeleton);
+              console.log("Created skinned mesh with", materials.length, "materials and", parsedModel.bones.length, "bones");
+            } else {
+              // Create a regular mesh
+              mesh = new THREE.Mesh(parsedModel.geometry, materials);
+              console.log("Created regular mesh with", materials.length, "materials");
+            }
+            
             setModel(mesh);
           }
         } catch (err) {
