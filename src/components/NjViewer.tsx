@@ -107,8 +107,8 @@ const NJViewer: React.FC<NJViewerProps> = ({
       try {
         // Step 1: Load textures first
         console.log("Step 1: Loading textures");
-        const textureMap = new Map<number, THREE.Texture>();
-        const canvasesMap = new Map<number, HTMLCanvasElement>();
+        const textureMap = new Map<string | number, THREE.Texture>();
+        const canvasesMap = new Map<string | number, HTMLCanvasElement>();
 
         if (texturePaths.length > 0) {
           for (let i = 0; i < texturePaths.length; i++) {
