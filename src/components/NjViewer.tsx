@@ -102,6 +102,7 @@ const NJViewer: React.FC<NJViewerProps> = ({
         for (let i = 0; i < texturePaths.length; i++) {
           const texturePath = texturePaths[i];
           try {
+            console.log(`Loading texture from: /iso/${texturePath}`);
             // Fetch the PVR/PVM file
             const response = await fetch(`/iso/${texturePath}`);
             if (!response.ok) {
@@ -124,7 +125,10 @@ const NJViewer: React.FC<NJViewerProps> = ({
               const texture = new THREE.CanvasTexture(canvas);
               texture.flipY = false; // PVR textures don't need to be flipped
               texture.name = texturePath.split("/").pop() || "";
+              texture.needsUpdate = true; // Ensure texture updates
 
+              console.log(`Successfully loaded texture: ${texture.name} (${imageData.width}x${imageData.height})`);
+              
               // Store texture with its index
               textureMap.set(i, texture);
             }
@@ -133,6 +137,7 @@ const NJViewer: React.FC<NJViewerProps> = ({
           }
         }
 
+        console.log(`Loaded ${textureMap.size} textures`);
         setTextures(textureMap);
       } catch (err) {
         console.error("Error loading textures:", err);
@@ -163,13 +168,30 @@ const NJViewer: React.FC<NJViewerProps> = ({
         const modelBuffer = await response.arrayBuffer();
         const parsedModel = parseNinjaModel(modelBuffer);
 
+        console.log("Parsed model:", parsedModel);
+        console.log("TextureNames:", parsedModel.textureNames);
+        console.log("Materials count:", parsedModel.materials?.length);
+        
         if (parsedModel.geometry && parsedModel.materials) {
+          // Create a mapping from texture names to texture objects
+          const textureNameMap = new Map<string, THREE.Texture>();
+          
+          // Extract filenames without extensions from texturePaths
+          texturePaths.forEach((path, index) => {
+            const filename = path.split('/').pop()?.split('.')[0] || '';
+            if (textures.has(index)) {
+              textureNameMap.set(filename, textures.get(index));
+              console.log(`Mapped texture name ${filename} to texture at index ${index}`);
+            }
+          });
+          
           // Create materials from the parsed model
-          const materials: THREE.Material[] = parsedModel.materials.map(materialOpts => {
+          const materials: THREE.Material[] = parsedModel.materials.map((materialOpts, index) => {
             // Basic material properties
             const material = new THREE.MeshPhongMaterial({
               side: materialOpts.doubleSide ? THREE.DoubleSide : THREE.FrontSide,
-              transparent: materialOpts.blending,
+              transparent: materialOpts.blending || false,
+              name: `Material_${index}`,
             });
             
             // Set colors if available
@@ -182,9 +204,30 @@ const NJViewer: React.FC<NJViewerProps> = ({
               material.opacity = materialOpts.diffuseColor.a;
             }
             
-            // Apply texture if available
+            // Apply texture if available - first try by texId
             if (materialOpts.texId >= 0 && textures.has(materialOpts.texId)) {
-              material.map = textures.get(materialOpts.texId);
+              const texture = textures.get(materialOpts.texId);
+              material.map = texture;
+              material.needsUpdate = true;
+              console.log(`Applied texture ${materialOpts.texId} to material ${index}`);
+            } 
+            // If texture name is available, try to match by name
+            else if (parsedModel.textureNames && parsedModel.textureNames.length > materialOpts.texId) {
+              const textureName = parsedModel.textureNames[materialOpts.texId];
+              if (textureName && textureNameMap.has(textureName)) {
+                material.map = textureNameMap.get(textureName);
+                material.needsUpdate = true;
+                console.log(`Applied texture "${textureName}" to material ${index}`);
+              } else {
+                console.log(`No matching texture found for name: ${textureName}`);
+              }
+            } else {
+              console.log(`No texture found for material ${index} with texId: ${materialOpts.texId}`);
+            }
+            
+            // Always ensure textures are properly updated
+            if (material.map) {
+              material.map.needsUpdate = true;
             }
             
             return material;
@@ -197,6 +240,7 @@ const NJViewer: React.FC<NJViewerProps> = ({
           
           // Create the mesh with the geometry and materials
           const mesh = new THREE.Mesh(parsedModel.geometry, materials);
+          console.log("Created mesh with", materials.length, "materials");
           setModel(mesh);
         }
       } catch (err) {
