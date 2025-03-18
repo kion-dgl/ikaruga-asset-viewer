@@ -90,6 +90,9 @@ const NJViewer: React.FC<NJViewerProps> = ({
   const [textures, setTextures] = useState<Map<number, THREE.Texture>>(
     new Map(),
   );
+  const [textureCanvases, setTextureCanvases] = useState<Map<number, HTMLCanvasElement>>(
+    new Map(),
+  );
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -117,6 +120,8 @@ const NJViewer: React.FC<NJViewerProps> = ({
             const canvas = document.createElement("canvas");
             canvas.width = imageData.width;
             canvas.height = imageData.height;
+            canvas.style.border = "1px solid white";
+            canvas.title = texturePath.split("/").pop() || "";
 
             const context = canvas.getContext("2d");
             if (context) {
@@ -126,11 +131,21 @@ const NJViewer: React.FC<NJViewerProps> = ({
               texture.flipY = false; // PVR textures don't need to be flipped
               texture.name = texturePath.split("/").pop() || "";
               texture.needsUpdate = true; // Ensure texture updates
+              
+              // For debugging, add an attribute to track where the texture is applied
+              texture.userData = { 
+                applied: false,
+                index: i,
+                path: texturePath 
+              };
 
               console.log(`Successfully loaded texture: ${texture.name} (${imageData.width}x${imageData.height})`);
               
-              // Store texture with its index
+              // Store texture and canvas with its index
               textureMap.set(i, texture);
+              const canvasesMap = new Map(textureCanvases);
+              canvasesMap.set(i, canvas);
+              setTextureCanvases(canvasesMap);
             }
           } catch (err) {
             console.warn(`Error loading texture ${texturePath}:`, err);
@@ -209,14 +224,19 @@ const NJViewer: React.FC<NJViewerProps> = ({
               const texture = textures.get(materialOpts.texId);
               material.map = texture;
               material.needsUpdate = true;
+              // Mark texture as applied for debugging
+              texture.userData.applied = true;
               console.log(`Applied texture ${materialOpts.texId} to material ${index}`);
             } 
             // If texture name is available, try to match by name
             else if (parsedModel.textureNames && parsedModel.textureNames.length > materialOpts.texId) {
               const textureName = parsedModel.textureNames[materialOpts.texId];
               if (textureName && textureNameMap.has(textureName)) {
-                material.map = textureNameMap.get(textureName);
+                const texture = textureNameMap.get(textureName);
+                material.map = texture;
                 material.needsUpdate = true;
+                // Mark texture as applied for debugging
+                texture.userData.applied = true;
                 console.log(`Applied texture "${textureName}" to material ${index}`);
               } else {
                 console.log(`No matching texture found for name: ${textureName}`);
@@ -238,6 +258,16 @@ const NJViewer: React.FC<NJViewerProps> = ({
             materials.push(new THREE.MeshNormalMaterial());
           }
           
+          // Log groups info for debugging
+          if (parsedModel.geometry.groups && parsedModel.geometry.groups.length > 0) {
+            console.log("Material groups in geometry:", parsedModel.geometry.groups);
+            parsedModel.geometry.groups.forEach((group, i) => {
+              console.log(`Group ${i}: materialIndex=${group.materialIndex}, start=${group.start}, count=${group.count}`);
+            });
+          } else {
+            console.log("No material groups found in geometry");
+          }
+
           // Create the mesh with the geometry and materials
           const mesh = new THREE.Mesh(parsedModel.geometry, materials);
           console.log("Created mesh with", materials.length, "materials");
@@ -257,45 +287,114 @@ const NJViewer: React.FC<NJViewerProps> = ({
   }, [modelPath, textures]);
 
   return (
-    <div
-      className="nj-viewer-canvas border border-gray-300 rounded-md overflow-hidden relative"
-      style={{ width, height }}
-    >
-      {loading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30 z-10">
-          <div className="text-white">Loading model...</div>
-        </div>
-      )}
-
-      {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30 z-10">
-          <div className="text-red-500">{error}</div>
-        </div>
-      )}
-
-      <Canvas camera={{ position: [0, 2, 5], fov: 50 }}>
-        <ambientLight intensity={0.5} />
-        <pointLight position={[10, 10, 10]} intensity={1} />
-        <pointLight
-          position={[-10, -10, -10]}
-          intensity={0.5}
-          color="#8080ff"
-        />
-
-        {model ? (
-          <Model mesh={model} />
-        ) : (
-          // Placeholder box while loading
-          <mesh>
-            <boxGeometry args={[1, 1, 1]} />
-            <meshStandardMaterial color="#6be092" />
-          </mesh>
+    <div className="nj-viewer-container">
+      <div
+        className="nj-viewer-canvas border border-gray-300 rounded-md overflow-hidden relative"
+        style={{ width, height }}
+      >
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30 z-10">
+            <div className="text-white">Loading model...</div>
+          </div>
         )}
-
-        <OrbitControls />
-        <gridHelper args={[10, 10]} />
-        <axesHelper args={[5]} />
-      </Canvas>
+  
+        {error && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-30 z-10">
+            <div className="text-red-500">{error}</div>
+          </div>
+        )}
+  
+        <Canvas camera={{ position: [0, 2, 5], fov: 50 }}>
+          <ambientLight intensity={0.5} />
+          <pointLight position={[10, 10, 10]} intensity={1} />
+          <pointLight
+            position={[-10, -10, -10]}
+            intensity={0.5}
+            color="#8080ff"
+          />
+  
+          {model ? (
+            <Model mesh={model} />
+          ) : (
+            // Placeholder box while loading
+            <mesh>
+              <boxGeometry args={[1, 1, 1]} />
+              <meshStandardMaterial color="#6be092" />
+            </mesh>
+          )}
+  
+          <OrbitControls />
+          <gridHelper args={[10, 10]} />
+          <axesHelper args={[5]} />
+        </Canvas>
+      </div>
+      
+      {/* Texture Debug Panel */}
+      <div className="texture-debug-panel" style={{ marginTop: '10px', display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+        <div style={{ width: '100%' }}>
+          <h3 style={{ fontSize: '14px', marginBottom: '5px' }}>Texture Debug Panel:</h3>
+        </div>
+        {Array.from(textureCanvases.entries()).map(([index, canvas]) => {
+          const texture = textures.get(index);
+          const isApplied = texture?.userData?.applied || false;
+          const textureName = texture?.name || `Texture ${index}`;
+          const texturePath = texture?.userData?.path || '';
+          
+          return (
+            <div key={index} style={{ 
+              display: 'flex', 
+              flexDirection: 'column',
+              alignItems: 'center', 
+              border: isApplied ? '2px solid green' : '2px solid red',
+              padding: '5px',
+              borderRadius: '4px',
+              background: '#222'
+            }}>
+              <div style={{ 
+                fontSize: '12px',
+                color: isApplied ? 'lightgreen' : 'salmon',
+                marginBottom: '3px',
+                whiteSpace: 'nowrap'
+              }}>
+                {isApplied ? '✓ ' : '✗ '}
+                {textureName}
+              </div>
+              <div style={{ 
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                width: '64px',
+                height: '64px',
+                overflow: 'hidden'
+              }}>
+                <canvas
+                  ref={(ref) => {
+                    if (ref) {
+                      const ctx = ref.getContext('2d');
+                      if (ctx) {
+                        const scale = Math.min(64 / canvas.width, 64 / canvas.height);
+                        ref.width = canvas.width * scale;
+                        ref.height = canvas.height * scale;
+                        ctx.scale(scale, scale);
+                        ctx.drawImage(canvas, 0, 0);
+                      }
+                    }
+                  }}
+                  width={64}
+                  height={64}
+                  title={`Index: ${index}, Applied: ${isApplied}, Path: ${texturePath}`}
+                />
+              </div>
+              <div style={{ fontSize: '10px', color: '#aaa', marginTop: '3px' }}>
+                {canvas.width}x{canvas.height}
+              </div>
+            </div>
+          );
+        })}
+        {textureCanvases.size === 0 && (
+          <div style={{ color: '#aaa', fontSize: '12px' }}>No textures loaded</div>
+        )}
+      </div>
     </div>
   );
 };
