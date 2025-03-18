@@ -1,11 +1,28 @@
 ---
 title: EVIL
-description: A sprite or something
+description: Texture used in Ikaruga
 ---
 
 import PVMViewer from '@components/PVMViewer';
+import NJViewer from "@components/NjViewer";
+
+# EVIL Texture
 
 <PVMViewer
   client:load
   filePath="OBJ/EVIL.PVM"
 />
+
+
+## 3D Model
+
+This texture is used by the following 3D model:
+
+<NJViewer 
+  client:load
+  modelPath="OBJ/EVIL.NJ" 
+  texturePaths={["OBJ/EVIL.PVM"]}
+  width={600}
+  height={400}
+/>
+

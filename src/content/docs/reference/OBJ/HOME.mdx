@@ -1,11 +1,27 @@
 ---
 title: HOME
-description: A sprite or something
+description: Texture used in Ikaruga
 ---
 
 import PVMViewer from '@components/PVMViewer';
+import NJViewer from "@components/NjViewer";
+
+# HOME Texture
 
 <PVMViewer
   client:load
   filePath="OBJ/HOME.PVM"
+/>
+
+
+## 3D Model
+
+This texture is used by the following 3D model:
+
+<NJViewer
+  client:load
+  modelPath="OBJ/HOME.NJ"
+  texturePaths={["OBJ/HOME.PVM"]}
+  width={600}
+  height={400}
 />

@@ -1,0 +1,99 @@
+---
+title: NJ Model Format
+description: Guide for viewing and understanding NJ (Ninja) 3D models
+---
+
+import NJViewer from '../../../components/NjViewer';
+
+# Ninja (NJ) 3D Model Format
+
+The Ninja format (NJ) is a proprietary 3D model format used by Sega, particularly on the Dreamcast console. The format was created by Sega AM2 for their "Ninja" game engine, which was used for many Dreamcast titles.
+
+## Format Overview
+
+Ninja models typically have the following structure:
+
+- A header section containing format information
+- A bone/skeleton hierarchy for animated models
+- Vertex data (positions, normals, UVs)
+- Material and texture references
+- Triangle/strip data for rendering
+
+Files typically have the `.nj` extension (model data) or may come with paired `.njm` files (animation data).
+
+## Viewing 3D Models
+
+Below is an example of a 3D model viewer rendering a Ninja format model:
+
+<NJViewer 
+  client:load
+  modelPath="OBJ/COCK.NJ" 
+  texturePaths={["OBJ/COCK.PVM"]}
+  width={600}
+  height={400}
+/>
+
+## Format Details
+
+### File Structure
+
+The NJ format uses a chunk-based structure with different sections indicated by 4-character codes like:
+
+- `NJTL` - Texture list
+- `NJCM` - Model data (vertex, polygon, material)
+- `NMDM` - Animation data
+
+### Bone Hierarchy
+
+Models can contain a hierarchical bone structure for animation:
+
+- Bones are organized in a parent-child relationship
+- Each bone has position, rotation, and scale information
+- Bones can have mesh data attached to them
+
+### Vertex Format
+
+Vertex data includes:
+- 3D position (x, y, z)
+- Normal vectors
+- Texture coordinates (UVs)
+- Color information
+- Skinning weights (for animated models)
+
+### Materials
+
+Material definitions include:
+- Texture references
+- Diffuse, specular, and ambient colors
+- Alpha/transparency settings
+- Various render flags
+
+## Examples
+
+Here are some other models you can explore:
+
+<NJViewer 
+  client:load
+  modelPath="OBJ/FISH.NJ" 
+  texturePaths={["OBJ/FISH.PVM"]}
+  width={600}
+  height={400}
+/>
+
+<NJViewer 
+  client:load
+  modelPath="OBJ/SHIP.NJ" 
+  texturePaths={["OBJ/SHIP.PVM"]}
+  width={600}
+  height={400}
+/>
+
+## Technical Implementation
+
+The model viewer uses Three.js with React Three Fiber to render the 3D models in the browser. The implementation:
+
+1. Loads and parses the NJ file format
+2. Extracts bone hierarchy, vertex data, and material information
+3. Loads associated textures from PVM/PVR files
+4. Creates a Three.js skinned mesh with the appropriate materials
+5. Renders the model with interactive controls for rotating and zooming

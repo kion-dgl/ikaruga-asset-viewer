@@ -1,11 +1,27 @@
 ---
 title: IKAL
-description: A sprite or something
+description: Texture used in Ikaruga
 ---
 
 import PVMViewer from '@components/PVMViewer';
+import NJViewer from "@components/NjViewer";
+
+# IKAL Texture
 
 <PVMViewer
   client:load
   filePath="OBJ/IKAL.PVM"
+/>
+
+
+## 3D Model
+
+This texture is used by the following 3D model:
+
+<NJViewer
+  client:load
+  modelPath="OBJ/IKAL.NJ"
+  texturePaths={["OBJ/IKAL.PVM"]}
+  width={600}
+  height={400}
 />

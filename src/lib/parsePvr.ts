@@ -87,7 +87,6 @@ export const parsePvr = async (
 
   // Skip data size
   const dataSize = view.getUint32(offset, true);
-  console.log(`PVR data size: ${dataSize} bytes`);
   offset += 4;
 
   // Read texture header
@@ -125,7 +124,6 @@ export const parsePvr = async (
     usedExternalPalette: false,
   };
 
-  console.log(`PVR Header:`, header);
   const imageData = new ImageData(header.width, header.height);
 
   switch (dataFormat) {
@@ -169,19 +167,11 @@ const decodeRectangleTwiddled = (
 ) => {
   const { width, height, colorFormat } = header;
 
-  console.log(
-    `Decoding TWIDDLED_RECTANGLE texture: ${width}x${height}, format: 0x${colorFormat.toString(16)}`,
-  );
-
   // Determine if the texture is wider than it is tall, or vice versa
   if (width > height) {
     // Horizontal rectangle (wider than tall)
     const squareSize = height; // The size of each square block
     const blockCount = width / squareSize; // Number of square blocks
-
-    console.log(
-      `Horizontal rectangle: ${blockCount} blocks of ${squareSize}x${squareSize}`,
-    );
 
     // Create lookup table for the square portion
     const lookUpTable = createDetwiddlingLookupTable(squareSize, squareSize);
@@ -230,9 +220,6 @@ const decodeRectangleTwiddled = (
             imageData.data[pixelIndex + 3] = 255;
             break;
           default:
-            console.warn(
-              `Unsupported color format in TWIDDLED_RECTANGLE: 0x${colorFormat.toString(16)}`,
-            );
             // Default to grayscale
             const gray = i % 256;
             imageData.data[pixelIndex + 0] = gray;
@@ -246,10 +233,6 @@ const decodeRectangleTwiddled = (
     // Vertical rectangle (taller than wide)
     const squareSize = width; // The size of each square block
     const blockCount = height / squareSize; // Number of square blocks
-
-    console.log(
-      `Vertical rectangle: ${blockCount} blocks of ${squareSize}x${squareSize}`,
-    );
 
     // Create lookup table for the square portion
     const lookUpTable = createDetwiddlingLookupTable(squareSize, squareSize);
@@ -298,9 +281,6 @@ const decodeRectangleTwiddled = (
             imageData.data[pixelIndex + 3] = 255;
             break;
           default:
-            console.warn(
-              `Unsupported color format in TWIDDLED_RECTANGLE: 0x${colorFormat.toString(16)}`,
-            );
             // Default to grayscale
             const gray = i % 256;
             imageData.data[pixelIndex + 0] = gray;
@@ -312,9 +292,6 @@ const decodeRectangleTwiddled = (
     }
   } else {
     // Square texture - shouldn't happen with TWIDDLED_RECTANGLE but handle anyway
-    console.warn(
-      `Square texture (${width}x${height}) with TWIDDLED_RECTANGLE format?`,
-    );
 
     // Create lookup table
     const lookUpTable = createDetwiddlingLookupTable(width, height);
@@ -358,9 +335,6 @@ const decodeRectangleTwiddled = (
           imageData.data[pixelIndex + 3] = 255;
           break;
         default:
-          console.warn(
-            `Unsupported color format in TWIDDLED_RECTANGLE: 0x${colorFormat.toString(16)}`,
-          );
           // Default to grayscale
           const gray = i % 256;
           imageData.data[pixelIndex + 0] = gray;
@@ -512,6 +486,7 @@ const decodePalette = (
   const pal: number[][] = [];
 
   if (header.dataFormat === PVR_DATA_FORMATS.PALETTIZE8) {
+    // Use grayscale palette for 8-bit palettes
     for (let i = 0; i < 255; i++) {
       pal.push([i, i, i, 255]);
     }
@@ -525,7 +500,6 @@ const decodePalette = (
   }
 
   if (width > height) {
-    console.log("here!!!");
     const count = width / height;
 
     const lookUpTable = createDetwiddlingLookupTable(height, height);
@@ -534,8 +508,6 @@ const decodePalette = (
     for (offset; offset < view.byteLength; offset++) {
       const byte = view.getUint8(offset);
       if (header.dataFormat === PVR_DATA_FORMATS.PALETTIZE8) {
-        console.log(header);
-        console.log("palette 8");
         bodyData.push(byte);
       } else {
         bodyData.push(byte & 0x0f);
@@ -566,8 +538,6 @@ const decodePalette = (
     for (offset; offset < view.byteLength; offset++) {
       const byte = view.getUint8(offset);
       if (header.dataFormat === PVR_DATA_FORMATS.PALETTIZE8) {
-        console.log(header);
-        console.log("palette 8");
         bodyData.push(byte);
       } else {
         bodyData.push(byte & 0x0f);
@@ -597,8 +567,6 @@ const decodePalette = (
     for (offset; offset < view.byteLength; offset++) {
       const byte = view.getUint8(offset);
       if (header.dataFormat === PVR_DATA_FORMATS.PALETTIZE8) {
-        console.log(header);
-        console.log("palette 8");
         bodyData.push(byte);
       } else {
         bodyData.push(byte & 0x0f);
@@ -663,9 +631,7 @@ const drawImage = (
       const i = y * width + x;
 
       if (i >= image.length) {
-        console.warn(
-          `Index ${i} out of bounds for image data (length: ${image.length})`,
-        );
+        // Index out of bounds for image data
         n += 4;
         continue;
       }
@@ -702,7 +668,7 @@ const drawImage = (
           imageData.data[n + 2] = image[i] & 0xff;
           break;
         default:
-          console.warn(`Unsupported color format: ${colorFormat}`);
+          // Unsupported color format, handled silently
       }
 
       n += 4;

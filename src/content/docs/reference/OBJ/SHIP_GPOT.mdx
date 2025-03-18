@@ -1,11 +1,27 @@
 ---
 title: SHIP_GPOT
-description: A sprite or something
+description: Texture used in Ikaruga
 ---
 
 import PVMViewer from '@components/PVMViewer';
+import NJViewer from "@components/NjViewer";
+
+# SHIP_GPOT Texture
 
 <PVMViewer
   client:load
   filePath="OBJ/SHIP_GPOT.PVM"
+/>
+
+
+## 3D Model
+
+This texture is used by the following 3D model:
+
+<NJViewer
+  client:load
+  modelPath="OBJ/SHIP_GPOT.NJ"
+  texturePaths={["OBJ/SHIP_GPOT.PVM"]}
+  width={600}
+  height={400}
 />

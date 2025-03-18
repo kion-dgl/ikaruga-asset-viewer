@@ -1,11 +1,28 @@
 ---
 title: SUCK
-description: A sprite or something
+description: Texture used in Ikaruga
 ---
 
 import PVMViewer from '@components/PVMViewer';
+import NJViewer from "@components/NjViewer";
+
+# SUCK Texture
 
 <PVMViewer
   client:load
   filePath="OBJ/SUCK.PVM"
 />
+
+
+## 3D Model
+
+This texture is used by the following 3D model:
+
+<NJViewer 
+  client:load
+  modelPath="OBJ/SUCK.NJ" 
+  texturePaths={["OBJ/SUCK.PVM"]}
+  width={600}
+  height={400}
+/>
+

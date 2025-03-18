@@ -1,11 +1,27 @@
 ---
 title: HATO_GPOT
-description: A sprite or something
+description: Texture used in Ikaruga
 ---
 
 import PVMViewer from '@components/PVMViewer';
+import NJViewer from "@components/NjViewer";
+
+# HATO_GPOT Texture
 
 <PVMViewer
   client:load
   filePath="OBJ/HATO_GPOT.PVM"
+/>
+
+
+## 3D Model
+
+This texture is used by the following 3D model:
+
+<NJViewer
+  client:load
+  modelPath="OBJ/HATO_GPOT.NJ"
+  texturePaths={["OBJ/HATO_GPOT.PVM"]}
+  width={600}
+  height={400}
 />
