@@ -42,6 +42,79 @@ export interface PVRHeader {
  * @param buffer The PVR file buffer
  * @param externalPalette Optional external palette data from a PVP file
  */
+// Interface for PVM entries (textures inside a PVM file)
+export interface PVMEntry {
+  name: string;
+  data: ArrayBuffer;
+}
+
+// Parse a PVM file and extract contained PVR textures
+export const parsePvm = async (
+  buffer: ArrayBuffer
+): Promise<PVMEntry[]> => {
+  const view = new DataView(buffer);
+  let offset = 0;
+
+  // Check for PVMH header (PVM Header)
+  const magic = String.fromCharCode(
+    view.getUint8(offset),
+    view.getUint8(offset + 1),
+    view.getUint8(offset + 2),
+    view.getUint8(offset + 3),
+  );
+
+  if (magic !== "PVMH") {
+    throw new Error("Invalid PVM file format (missing PVMH header)");
+  }
+  offset += 4;
+
+  // Skip version (4 bytes)
+  offset += 4;
+
+  // Read number of textures
+  const numTextures = view.getUint32(offset, true);
+  console.log(`PVM contains ${numTextures} textures`);
+  offset += 4;
+
+  // Skip file size (4 bytes)
+  offset += 4;
+
+  const entries: PVMEntry[] = [];
+
+  // Read entries
+  for (let i = 0; i < numTextures; i++) {
+    // Read texture name (up to 28 bytes, null-terminated)
+    let name = "";
+    const nameStart = offset;
+    for (let j = 0; j < 28; j++) {
+      const char = view.getUint8(offset + j);
+      if (char === 0) break; // Null terminator
+      name += String.fromCharCode(char);
+    }
+    offset = nameStart + 28; // Skip to end of name field
+
+    // Read texture data offset
+    const dataOffset = view.getUint32(offset, true);
+    offset += 4;
+
+    // Read texture data size
+    const dataSize = view.getUint32(offset, true);
+    offset += 4;
+
+    console.log(`Found texture "${name}" at offset ${dataOffset}, size ${dataSize}`);
+
+    // Extract the texture data
+    const textureData = buffer.slice(dataOffset, dataOffset + dataSize);
+    
+    entries.push({
+      name,
+      data: textureData
+    });
+  }
+
+  return entries;
+};
+
 export const parsePvr = async (
   buffer: ArrayBuffer,
   externalPalette?: number[][],

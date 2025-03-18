@@ -10,7 +10,7 @@ import {
   AnimationClip,
   VectorKeyframeTrack,
 } from "three";
-import { parsePvr } from "../lib/parsePvr";
+import { parsePvr, parsePvm, PVMEntry } from "../lib/parsePvr";
 import { parseNinjaModel, NinjaModel } from "../lib/njParse";
 
 interface NJViewerProps {
@@ -127,11 +127,64 @@ const NJViewer: React.FC<NJViewerProps> = ({
               const isPVM = texturePath.toLowerCase().endsWith('.pvm');
               
               if (isPVM) {
-                console.warn("PVM files are currently loaded as PVR. In a real implementation, you would need to parse the PVM container format first.");
-                // TODO: In a real implementation, parse PVM container format
-                // For now, try to use the first image in the file
+                console.log("Processing PVM file...");
+                try {
+                  // Parse the PVM container to get all textures inside
+                  const entries = await parsePvm(buffer);
+                  console.log(`Successfully extracted ${entries.length} textures from PVM`);
+                  
+                  // Process each texture in the PVM
+                  for (let j = 0; j < entries.length; j++) {
+                    const entry = entries[j];
+                    try {
+                      // Parse the individual PVR texture
+                      const { imageData } = await parsePvr(entry.data);
+                      
+                      // Create a Three.js texture from the parsed image data
+                      const canvas = document.createElement("canvas");
+                      canvas.width = imageData.width;
+                      canvas.height = imageData.height;
+                      canvas.style.border = "1px solid white";
+                      canvas.title = entry.name;
+                      
+                      const context = canvas.getContext("2d");
+                      if (context) {
+                        context.putImageData(imageData, 0, 0);
+                        
+                        const texture = new THREE.CanvasTexture(canvas);
+                        texture.flipY = false; // PVR textures don't need to be flipped
+                        texture.name = entry.name;
+                        texture.needsUpdate = true; // Ensure texture updates
+                        
+                        // For debugging, add an attribute to track where the texture is applied
+                        texture.userData = {
+                          applied: false,
+                          index: j,
+                          path: `${texturePath}/${entry.name}`,
+                          fromPVM: true
+                        };
+                        
+                        console.log(`Successfully loaded texture: ${texture.name} (${imageData.width}x${imageData.height}) from PVM`);
+                        
+                        // Store texture and canvas - use the texture name as the key for matching
+                        textureMap.set(entry.name, texture);
+                        canvasesMap.set(entry.name, canvas);
+                      }
+                    } catch (err) {
+                      console.warn(`Error processing PVR entry ${entry.name} in ${texturePath}:`, err);
+                    }
+                  }
+                  
+                  // Skip the rest of the loop for this PVM since we've processed all entries
+                  continue;
+                } catch (err) {
+                  console.error(`Failed to parse PVM file ${texturePath}:`, err);
+                  // Fall back to treating it as a regular PVR if the PVM parsing fails
+                  console.warn("Falling back to treating as regular PVR file...");
+                }
               }
               
+              // If we get here, handle as a regular PVR file
               const { imageData } = await parsePvr(buffer);
 
               // Create a Three.js texture from the parsed image data
@@ -195,18 +248,6 @@ const NJViewer: React.FC<NJViewerProps> = ({
           console.log("Materials count:", parsedModel.materials?.length);
           
           if (parsedModel.geometry && parsedModel.materials) {
-            // Create a mapping from texture names to texture objects
-            const textureNameMap = new Map<string, THREE.Texture>();
-            
-            // Extract filenames without extensions from texturePaths
-            texturePaths.forEach((path, index) => {
-              const filename = path.split('/').pop()?.split('.')[0] || '';
-              if (textureMap.has(index)) {
-                textureNameMap.set(filename, textureMap.get(index));
-                console.log(`Mapped texture name ${filename} to texture at index ${index}`);
-              }
-            });
-            
             // Create materials from the parsed model
             const materials: THREE.Material[] = parsedModel.materials.map((materialOpts, index) => {
               // Basic material properties
@@ -226,30 +267,62 @@ const NJViewer: React.FC<NJViewerProps> = ({
                 material.opacity = materialOpts.diffuseColor.a;
               }
               
-              // Apply texture if available - first try by texId
-              if (materialOpts.texId >= 0 && textureMap.has(materialOpts.texId)) {
+              let textureApplied = false;
+              
+              // For PVM files, the texture names are directly used as keys
+              if (parsedModel.textureNames && parsedModel.textureNames.length > materialOpts.texId) {
+                const textureName = parsedModel.textureNames[materialOpts.texId];
+                if (textureName && textureMap.has(textureName)) {
+                  // Direct match by texture name from PVM
+                  const texture = textureMap.get(textureName);
+                  material.map = texture;
+                  material.needsUpdate = true;
+                  texture.userData.applied = true;
+                  console.log(`Applied texture "${textureName}" directly from PVM to material ${index}`);
+                  textureApplied = true;
+                }
+              }
+              
+              // If no texture applied yet, try by index for single PVR files
+              if (!textureApplied && materialOpts.texId >= 0 && textureMap.has(materialOpts.texId)) {
                 const texture = textureMap.get(materialOpts.texId);
                 material.map = texture;
                 material.needsUpdate = true;
-                // Mark texture as applied for debugging
                 texture.userData.applied = true;
-                console.log(`Applied texture ${materialOpts.texId} to material ${index}`);
-              } 
-              // If texture name is available, try to match by name
-              else if (parsedModel.textureNames && parsedModel.textureNames.length > materialOpts.texId) {
+                console.log(`Applied texture by index ${materialOpts.texId} to material ${index}`);
+                textureApplied = true;
+              }
+              
+              // If still no texture, try texture name matching with filenames
+              if (!textureApplied && parsedModel.textureNames && parsedModel.textureNames.length > materialOpts.texId) {
                 const textureName = parsedModel.textureNames[materialOpts.texId];
-                if (textureName && textureNameMap.has(textureName)) {
-                  const texture = textureNameMap.get(textureName);
-                  material.map = texture;
-                  material.needsUpdate = true;
-                  // Mark texture as applied for debugging
-                  texture.userData.applied = true;
-                  console.log(`Applied texture "${textureName}" to material ${index}`);
-                } else {
+                
+                // Try all keys in textureMap to find a matching filename pattern
+                for (const [key, texture] of textureMap.entries()) {
+                  if (
+                    // Try exact match first
+                    key === textureName ||
+                    // Try matching with case insensitivity 
+                    key.toLowerCase() === textureName.toLowerCase() ||
+                    // Try matching the end of the key (filename part)
+                    key.split('/').pop()?.split('.')[0]?.toLowerCase() === textureName.toLowerCase()
+                  ) {
+                    material.map = texture;
+                    material.needsUpdate = true;
+                    texture.userData.applied = true;
+                    console.log(`Applied texture "${key}" to material ${index} by name matching with "${textureName}"`);
+                    textureApplied = true;
+                    break;
+                  }
+                }
+                
+                if (!textureApplied) {
                   console.log(`No matching texture found for name: ${textureName}`);
                 }
-              } else {
-                console.log(`No texture found for material ${index} with texId: ${materialOpts.texId}`);
+              }
+              
+              if (!textureApplied) {
+                console.log(`No texture applied to material ${index} with texId: ${materialOpts.texId}`);
               }
               
               // Always ensure textures are properly updated
@@ -345,21 +418,23 @@ const NJViewer: React.FC<NJViewerProps> = ({
         <div style={{ width: '100%' }}>
           <h3 style={{ fontSize: '14px', marginBottom: '5px' }}>Texture Debug Panel:</h3>
         </div>
-        {Array.from(textureCanvases.entries()).map(([index, canvas]) => {
-          const texture = textures.get(index);
+        {Array.from(textureCanvases.entries()).map(([key, canvas]) => {
+          // For numeric keys (old style) or string keys (from PVM)
+          const texture = typeof key === 'number' ? textures.get(key) : textures.get(key);
           const isApplied = texture?.userData?.applied || false;
-          const textureName = texture?.name || `Texture ${index}`;
+          const textureName = texture?.name || `Texture ${key}`;
           const texturePath = texture?.userData?.path || '';
+          const fromPVM = texture?.userData?.fromPVM || false;
           
           return (
-            <div key={index} style={{ 
+            <div key={typeof key === 'string' ? key : String(key)} style={{ 
               display: 'flex', 
               flexDirection: 'column',
               alignItems: 'center', 
               border: isApplied ? '2px solid green' : '2px solid red',
               padding: '5px',
               borderRadius: '4px',
-              background: '#222'
+              background: fromPVM ? '#223322' : '#222'
             }}>
               <div style={{ 
                 fontSize: '12px',
@@ -393,7 +468,7 @@ const NJViewer: React.FC<NJViewerProps> = ({
                   }}
                   width={64}
                   height={64}
-                  title={`Index: ${index}, Applied: ${isApplied}, Path: ${texturePath}`}
+                  title={`Key: ${key}, Name: ${textureName}, Applied: ${isApplied}${fromPVM ? ', From PVM' : ''}, Path: ${texturePath}`}
                 />
               </div>
               <div style={{ fontSize: '10px', color: '#aaa', marginTop: '3px' }}>
