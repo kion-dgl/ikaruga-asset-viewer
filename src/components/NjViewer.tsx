@@ -88,10 +88,10 @@ const NJViewer: React.FC<NJViewerProps> = ({
   const [model, setModel] = useState<THREE.SkinnedMesh | THREE.Mesh | null>(
     null,
   );
-  const [textures, setTextures] = useState<Map<number, THREE.Texture>>(
+  const [textures, setTextures] = useState<Map<string | number, THREE.Texture>>(
     new Map(),
   );
-  const [textureCanvases, setTextureCanvases] = useState<Map<number, HTMLCanvasElement>>(
+  const [textureCanvases, setTextureCanvases] = useState<Map<string | number, HTMLCanvasElement>>(
     new Map(),
   );
   const [loading, setLoading] = useState<boolean>(true);
@@ -381,9 +381,27 @@ const NJViewer: React.FC<NJViewerProps> = ({
               // For PVM files, the texture names are directly used as keys
               if (parsedModel.textureNames && parsedModel.textureNames.length > materialOpts.texId) {
                 const textureName = parsedModel.textureNames[materialOpts.texId];
-                if (textureName && textureMap.has(textureName)) {
+                if (textureName && textureMap.has(textureName.toString())) {
                   // Direct match by texture name from PVM
-                  const texture = textureMap.get(textureName);
+                  const texture = textureMap.get(textureName.toString());
+                  if (texture) {
+                    material.map = texture;
+                    material.needsUpdate = true;
+                    texture.userData.applied = true;
+                    // Pass the blend mode to the texture for debugging display
+                    if (material.userData.blendMode) {
+                      texture.userData.blendMode = material.userData.blendMode;
+                    }
+                    console.log(`Applied texture "${textureName}" directly from PVM to material ${index}`);
+                    textureApplied = true;
+                  }
+                }
+              }
+              
+              // If no texture applied yet, try by index for single PVR files
+              if (!textureApplied && materialOpts.texId >= 0 && textureMap.has(materialOpts.texId)) {
+                const texture = textureMap.get(materialOpts.texId);
+                if (texture) {
                   material.map = texture;
                   material.needsUpdate = true;
                   texture.userData.applied = true;
@@ -391,23 +409,9 @@ const NJViewer: React.FC<NJViewerProps> = ({
                   if (material.userData.blendMode) {
                     texture.userData.blendMode = material.userData.blendMode;
                   }
-                  console.log(`Applied texture "${textureName}" directly from PVM to material ${index}`);
+                  console.log(`Applied texture by index ${materialOpts.texId} to material ${index}`);
                   textureApplied = true;
                 }
-              }
-              
-              // If no texture applied yet, try by index for single PVR files
-              if (!textureApplied && materialOpts.texId >= 0 && textureMap.has(materialOpts.texId)) {
-                const texture = textureMap.get(materialOpts.texId);
-                material.map = texture;
-                material.needsUpdate = true;
-                texture.userData.applied = true;
-                // Pass the blend mode to the texture for debugging display
-                if (material.userData.blendMode) {
-                  texture.userData.blendMode = material.userData.blendMode;
-                }
-                console.log(`Applied texture by index ${materialOpts.texId} to material ${index}`);
-                textureApplied = true;
               }
               
               // If still no texture, try texture name matching with filenames
@@ -416,13 +420,15 @@ const NJViewer: React.FC<NJViewerProps> = ({
                 
                 // Try all keys in textureMap to find a matching filename pattern
                 for (const [key, texture] of textureMap.entries()) {
+                  const keyStr = key.toString();
+                  const textureNameStr = textureName.toString();
                   if (
                     // Try exact match first
-                    key === textureName ||
+                    keyStr === textureNameStr ||
                     // Try matching with case insensitivity 
-                    key.toLowerCase() === textureName.toLowerCase() ||
+                    keyStr.toLowerCase() === textureNameStr.toLowerCase() ||
                     // Try matching the end of the key (filename part)
-                    key.split('/').pop()?.split('.')[0]?.toLowerCase() === textureName.toLowerCase()
+                    keyStr.split('/').pop()?.split('.')[0]?.toLowerCase() === textureNameStr.toLowerCase()
                   ) {
                     material.map = texture;
                     material.needsUpdate = true;
@@ -540,15 +546,15 @@ const NJViewer: React.FC<NJViewerProps> = ({
           <h3 style={{ fontSize: '14px', marginBottom: '5px' }}>Texture Debug Panel:</h3>
         </div>
         {Array.from(textureCanvases.entries()).map(([key, canvas]) => {
-          // For numeric keys (old style) or string keys (from PVM)
-          const texture = typeof key === 'number' ? textures.get(key) : textures.get(key);
+          // Get texture from the map using the same key (string or number)
+          const texture = textures.get(key);
           const isApplied = texture?.userData?.applied || false;
-          const textureName = texture?.name || `Texture ${key}`;
+          const textureName = texture?.name || `Texture ${key.toString()}`;
           const texturePath = texture?.userData?.path || '';
           const fromPVM = texture?.userData?.fromPVM || false;
           
           return (
-            <div key={typeof key === 'string' ? key : String(key)} style={{ 
+            <div key={key.toString()} style={{ 
               display: 'flex', 
               flexDirection: 'column',
               alignItems: 'center', 
