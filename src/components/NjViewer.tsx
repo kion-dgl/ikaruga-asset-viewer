@@ -9,7 +9,9 @@ import {
   LoopRepeat,
   AnimationClip,
   VectorKeyframeTrack,
+  SkeletonHelper as ThreeSkeletonHelper,
 } from "three";
+import { GLTFExporter } from "three/examples/jsm/exporters/GLTFExporter";
 import { parsePvr, parsePvm } from "../lib/parsePvr";
 import type { PVMEntry } from "../lib/parsePvr";
 import { parseNinjaModel, NinjaModel } from "../lib/njParse";
@@ -22,8 +24,14 @@ interface NJViewerProps {
 }
 
 // Component to handle the rotation of the model and animation
-const Model: React.FC<{ mesh: THREE.SkinnedMesh | THREE.Mesh }> = ({
+const Model: React.FC<{ 
+  mesh: THREE.SkinnedMesh | THREE.Mesh,
+  wireframe: boolean,
+  showSkeleton: boolean
+}> = ({
   mesh,
+  wireframe,
+  showSkeleton
 }) => {
   const groupRef = useRef<THREE.Group>(null);
   const mixer = useRef<THREE.AnimationMixer | null>(null);
@@ -65,6 +73,19 @@ const Model: React.FC<{ mesh: THREE.SkinnedMesh | THREE.Mesh }> = ({
     }
   }, [mesh]);
 
+  // Update wireframe state for all materials
+  useEffect(() => {
+    if (mesh) {
+      if (Array.isArray(mesh.material)) {
+        mesh.material.forEach(mat => {
+          mat.wireframe = wireframe;
+        });
+      } else if (mesh.material) {
+        mesh.material.wireframe = wireframe;
+      }
+    }
+  }, [mesh, wireframe]);
+
   useFrame(() => {
     // Update animation mixer
     if (mixer.current) {
@@ -75,6 +96,7 @@ const Model: React.FC<{ mesh: THREE.SkinnedMesh | THREE.Mesh }> = ({
   return (
     <group ref={groupRef}>
       <primitive object={mesh} />
+      {showSkeleton && mesh instanceof THREE.SkinnedMesh && <primitive object={new ThreeSkeletonHelper(mesh.skeleton.bones[0])} />}
     </group>
   );
 };
@@ -96,6 +118,66 @@ const NJViewer: React.FC<NJViewerProps> = ({
   );
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [wireframe, setWireframe] = useState<boolean>(false);
+  const [showSkeleton, setShowSkeleton] = useState<boolean>(false);
+
+  // Export functions for GLTF and GLB
+  const exportToGLTF = () => {
+    if (!model) return;
+    
+    const exporter = new GLTFExporter();
+    exporter.parse(
+      model,
+      (gltf) => {
+        if (gltf instanceof ArrayBuffer) {
+          return; // This should be binary GLB, not GLTF
+        }
+        
+        const output = JSON.stringify(gltf, null, 2);
+        const blob = new Blob([output], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${modelPath.split("/").pop()?.split(".")[0] || "model"}.gltf`;
+        link.click();
+        
+        URL.revokeObjectURL(url);
+      },
+      (error) => {
+        console.error('An error occurred during GLTF export:', error);
+      },
+      { binary: false } // Export as GLTF (not GLB)
+    );
+  };
+  
+  const exportToGLB = () => {
+    if (!model) return;
+    
+    const exporter = new GLTFExporter();
+    exporter.parse(
+      model,
+      (glb) => {
+        if (!(glb instanceof ArrayBuffer)) {
+          return; // This should be binary GLB, not GLTF
+        }
+        
+        const blob = new Blob([glb], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `${modelPath.split("/").pop()?.split(".")[0] || "model"}.glb`;
+        link.click();
+        
+        URL.revokeObjectURL(url);
+      },
+      (error) => {
+        console.error('An error occurred during GLB export:', error);
+      },
+      { binary: true } // Export as GLB
+    );
+  };
 
   // Combined loading function for sequential loading
   useEffect(() => {
@@ -525,7 +607,7 @@ const NJViewer: React.FC<NJViewerProps> = ({
           />
   
           {model ? (
-            <Model mesh={model} />
+            <Model mesh={model} wireframe={wireframe} showSkeleton={showSkeleton} />
           ) : (
             // Placeholder box while loading
             <mesh>
@@ -538,6 +620,75 @@ const NJViewer: React.FC<NJViewerProps> = ({
           <gridHelper args={[10, 10]} />
           <axesHelper args={[5]} />
         </Canvas>
+      </div>
+      
+      {/* Controls Panel */}
+      <div className="controls-panel" style={{ marginTop: '10px', display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <button 
+          className="model-button"
+          onClick={() => setWireframe(!wireframe)}
+          style={{
+            padding: '5px 10px',
+            backgroundColor: wireframe ? '#4CAF50' : '#555',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          {wireframe ? 'Wireframe: ON' : 'Wireframe: OFF'}
+        </button>
+        
+        <button 
+          className="model-button"
+          onClick={() => setShowSkeleton(!showSkeleton)}
+          disabled={!(model instanceof THREE.SkinnedMesh)}
+          style={{
+            padding: '5px 10px',
+            backgroundColor: showSkeleton ? '#4CAF50' : '#555',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: model instanceof THREE.SkinnedMesh ? 'pointer' : 'not-allowed',
+            opacity: model instanceof THREE.SkinnedMesh ? 1 : 0.5
+          }}
+        >
+          {showSkeleton ? 'Skeleton: ON' : 'Skeleton: OFF'}
+        </button>
+        
+        <button 
+          className="model-button"
+          onClick={exportToGLTF}
+          disabled={!model}
+          style={{
+            padding: '5px 10px',
+            backgroundColor: model ? '#007BFF' : '#555',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: model ? 'pointer' : 'not-allowed',
+            opacity: model ? 1 : 0.5
+          }}
+        >
+          Download GLTF
+        </button>
+        
+        <button 
+          className="model-button"
+          onClick={exportToGLB}
+          disabled={!model}
+          style={{
+            padding: '5px 10px',
+            backgroundColor: model ? '#FF7F00' : '#555',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: model ? 'pointer' : 'not-allowed',
+            opacity: model ? 1 : 0.5
+          }}
+        >
+          Download GLB
+        </button>
       </div>
       
       {/* Texture Debug Panel */}
